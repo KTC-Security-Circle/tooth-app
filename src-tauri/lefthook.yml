@@ -4,5 +4,5 @@ pre-commit:
     check-rs:
       root: src-tauri/
       glob: "**/*.rs"
-      run: fmt -- {staged_files} && cargo clippy
+      run: cargo fmt -- {staged_files} && cargo clippy
       stage_fixed: true

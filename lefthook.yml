@@ -11,4 +11,4 @@ pre-commit:
 pre-push:
   commands:
     type-check:
-      run: "bun ci:type"
+      run: "bun type"
