@@ -1,0 +1,66 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.5.2/schema.json",
+    "vcs": {
+        "enabled": false,
+        "clientKind": "git",
+        "useIgnoreFile": false
+    },
+    "files": {
+        "ignoreUnknown": false,
+        "includes": [
+            "**/.vscode/**/*",
+            "vite.config.ts",
+            "vitest.config.ts",
+            "**/biome.{json,jsonc}",
+            "**/package.json",
+            "**/tsconfig*.json",
+            "**/src/**/*"
+        ]
+    },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 2,
+        "useEditorconfig": true
+    },
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "preset": "recommended",
+            "correctness": {
+                "noUnusedImports": "error"
+            },
+            "nursery": {
+                "useSortedClasses": {
+                    "fix": "safe",
+                    "level": "error",
+                    "options": {
+                        "functions": ["twMerge", "clsx", "cn"]
+                    }
+                }
+            }
+        }
+    },
+    "javascript": {
+        "formatter": {
+            "enabled": true,
+            "quoteStyle": "single",
+            "semicolons": "asNeeded",
+            "trailingCommas": "all"
+        }
+    },
+    "json": {
+        "formatter": {
+            "enabled": true,
+            "indentStyle": "space",
+            "indentWidth": 4
+        }
+    }
+}

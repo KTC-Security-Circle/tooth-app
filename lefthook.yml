@@ -1,0 +1,14 @@
+extends:
+  - src-tauri/lefthook.yml
+
+pre-commit:
+  commands:
+    check:
+      glob: "app/**/*.{ts,tsx,json}"
+      run: bun biome check --write {staged_files}
+      stage_fixed: true
+
+pre-push:
+  commands:
+    type-check:
+      run: "bun ci:type"
