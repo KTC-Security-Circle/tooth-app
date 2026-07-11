@@ -56,3 +56,4 @@
 
 - node_modules 等の生成物を編集
 - リントエラー等の ignore
+- routeTree.gen.ts の編集
