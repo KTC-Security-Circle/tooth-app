@@ -4,7 +4,7 @@ extends:
 pre-commit:
   commands:
     check:
-      glob: "app/**/*.{ts,tsx,json}"
+      glob: "src/**/*.{ts,tsx,json}"
       run: bun biome check --write {staged_files}
       stage_fixed: true
 
