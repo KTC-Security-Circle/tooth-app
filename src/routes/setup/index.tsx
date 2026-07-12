@@ -46,6 +46,7 @@ function Setup() {
     },
     cameras,
     loadError,
+    requireCalibrationPath: true,
   })
 
   const handleSave = async () => {

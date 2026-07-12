@@ -28,12 +28,14 @@ interface UseSettingsArgs {
   settings: Settings
   cameras: CameraInfo[]
   loadError?: string | null
+  requireCalibrationPath?: boolean
 }
 
 export function useSettings({
   settings: initialSettings,
   cameras: initialCameras,
   loadError = null,
+  requireCalibrationPath = false,
 }: UseSettingsArgs) {
   const [settings, setSettings] = useState<Settings>(initialSettings)
   const [cameras] = useState<CameraInfo[]>(initialCameras)
@@ -42,6 +44,32 @@ export function useSettings({
   )
 
   const save = async (): Promise<boolean> => {
+    if (!settings.cameraLeft) {
+      setStatus({ type: 'error', message: '左カメラを選択してください' })
+      return false
+    }
+    if (!settings.cameraRight) {
+      setStatus({ type: 'error', message: '右カメラを選択してください' })
+      return false
+    }
+    if (requireCalibrationPath && !settings.calibrationImagePath) {
+      setStatus({
+        type: 'error',
+        message: 'キャリブレーション用画像保存パスを指定してください',
+      })
+      return false
+    }
+
+    try {
+      await invoke<void>('validate_settings', { settings })
+    } catch (e) {
+      setStatus({
+        type: 'error',
+        message: String(e),
+      })
+      return false
+    }
+
     setStatus({ type: 'loading', message: '保存中...' })
     try {
       await invoke<void>('save_settings', { settings })

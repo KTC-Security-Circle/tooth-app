@@ -53,6 +53,32 @@ impl Settings {
         }
     }
 
+    /// 設定値を検証する。calibrationImagePath が空文字の場合は実在性・ディレクトリ判定をスキップする（空文字は許可）。
+    pub fn validate(&self) -> Result<(), String> {
+        if self.camera_left.is_empty() {
+            return Err("左カメラを選択してください".to_string());
+        }
+        if self.camera_right.is_empty() {
+            return Err("右カメラを選択してください".to_string());
+        }
+        if !self.calibration_image_path.is_empty() {
+            let path = std::path::Path::new(&self.calibration_image_path);
+            if !path.exists() {
+                return Err(format!(
+                    "キャリブレーション用画像保存パスが存在しません: {}",
+                    self.calibration_image_path
+                ));
+            }
+            if !path.is_dir() {
+                return Err(format!(
+                    "キャリブレーション用画像保存パスにはディレクトリを指定してください: {}",
+                    self.calibration_image_path
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// 設定を JSON ファイルへ保存する。
     pub fn save(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let path = config_file_path(app)?;

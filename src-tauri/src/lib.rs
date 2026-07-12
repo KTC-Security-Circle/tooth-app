@@ -15,6 +15,7 @@ pub fn run() {
             commands::recalibrate::recalibrate,
             commands::default_calibration_path::default_calibration_path,
             commands::settings_exists::settings_exists,
+            commands::validate_settings::validate_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
