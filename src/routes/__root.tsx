@@ -18,13 +18,6 @@ export const Route = createRootRoute({
               Home
             </Link>
             <Link
-              to="/about"
-              activeProps={{ className: 'text-white' }}
-              className="font-medium text-slate-300 text-sm transition-colors hover:text-white"
-            >
-              About
-            </Link>
-            <Link
               to="/settings"
               activeProps={{ className: 'text-white' }}
               className="font-medium text-slate-300 text-sm transition-colors hover:text-white"
