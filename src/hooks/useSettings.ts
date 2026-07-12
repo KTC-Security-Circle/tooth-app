@@ -41,16 +41,18 @@ export function useSettings({
     loadError ? { type: 'error', message: loadError } : { type: 'idle' },
   )
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     setStatus({ type: 'loading', message: '保存中...' })
     try {
       await invoke<void>('save_settings', { settings })
       setStatus({ type: 'success', message: '設定を保存しました' })
+      return true
     } catch (e) {
       setStatus({
         type: 'error',
         message: `保存に失敗しました: ${String(e)}`,
       })
+      return false
     }
   }
 

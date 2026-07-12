@@ -1,12 +1,11 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { invoke } from '@tauri-apps/api/core'
-import { useState } from 'react'
 import CameraSelectSection from '@/components/app/CameraSelectSection'
 import PageHeader from '@/components/app/PageHeader'
 import Button from '@/components/ui/Button'
-import type { Status } from '@/components/ui/StatusBanner'
 import StatusBanner from '@/components/ui/StatusBanner'
 import type { CameraInfo } from '@/hooks/useSettings'
+import { useSettings } from '@/hooks/useSettings'
 
 export const Route = createFileRoute('/setup/')({
   loader: async () => {
@@ -37,31 +36,21 @@ function SetupPending() {
 function Setup() {
   const navigate = useNavigate()
   const { cameras, calibrationPath, loadError } = Route.useLoaderData()
-
-  const [cameraLeft, setCameraLeft] = useState('')
-  const [cameraRight, setCameraRight] = useState('')
-  const [status, setStatus] = useState<Status>(
-    loadError ? { type: 'error', message: loadError } : { type: 'idle' },
-  )
+  const { settings, status, save, updateField } = useSettings({
+    settings: {
+      cameraLeft: '',
+      cameraRight: '',
+      fps: 30,
+      calibrationImagePath: calibrationPath,
+      developerMode: false,
+    },
+    cameras,
+    loadError,
+  })
 
   const handleSave = async () => {
-    setStatus({ type: 'loading', message: '保存中...' })
-    try {
-      await invoke<void>('save_settings', {
-        settings: {
-          cameraLeft,
-          cameraRight,
-          fps: 30,
-          calibrationImagePath: calibrationPath,
-          developerMode: false,
-        },
-      })
+    if (await save()) {
       await navigate({ to: '/' })
-    } catch (e) {
-      setStatus({
-        type: 'error',
-        message: `保存に失敗しました: ${String(e)}`,
-      })
     }
   }
 
@@ -77,13 +66,13 @@ function Setup() {
       <div className="space-y-8">
         <CameraSelectSection
           cameras={cameras}
-          cameraLeft={cameraLeft}
-          cameraRight={cameraRight}
+          cameraLeft={settings.cameraLeft}
+          cameraRight={settings.cameraRight}
           onCameraLeftChange={(value) => {
-            setCameraLeft(value)
+            updateField('cameraLeft', value)
           }}
           onCameraRightChange={(value) => {
-            setCameraRight(value)
+            updateField('cameraRight', value)
           }}
         />
 
