@@ -22,12 +22,12 @@
 /
 ├─ src/                 # フロントエンドコード
 │    ├─ main.tsx       # フロントエンドエントリ
-│    └─ App.tsx        # フロントエンドのルートコンポーネント
-└─ src-tauri/           # Rust コードと Tauri 設定
-   ├─ src/              # Rust エントリ
-   │    └─ main.rs     # Rust エントリのソースコード
-   └─ tauri.conf.json   # Tauri 設定ファイル
+│    ├─ routes/        # TanStack Router のルート
+│    └─ lib/           # フロントエンド用ユーティリティ
+└─ src-tauri/           # Rust コードと Tauri 設定 (詳細は src-tauri/AGENTS.md 参照)
 ```
+
+Rust 側の構造・規約は [`src-tauri/AGENTS.md`](./src-tauri/AGENTS.md) を参照。
 
 ## Code Style
 
@@ -38,14 +38,13 @@
 
 ### Rust
 
-- unwrap などの操作は避けて、明示的なハンドリングを行う
+- `src-tauri/AGENTS.md` を参照
 
 ## Boundaries
 
 ### Always do
 
-- 変更後に check を通す
-- 実装や調査などはサブエージェントに委任する
+- 変更後にリント系のチェックを通す
 
 ### Ask first
 
@@ -56,4 +55,3 @@
 
 - node_modules 等の生成物を編集
 - リントエラー等の ignore
-- routeTree.gen.ts の編集
