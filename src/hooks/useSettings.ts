@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
 
 export type Settings = {
@@ -16,7 +16,7 @@ export type CameraInfo = {
   path: string
 }
 
-const defaultSettings: Settings = {
+export const defaultSettings: Settings = {
   cameraLeft: '',
   cameraRight: '',
   fps: 30,
@@ -24,58 +24,22 @@ const defaultSettings: Settings = {
   developerMode: false,
 }
 
-export function useSettings() {
-  const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const [cameras, setCameras] = useState<CameraInfo[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [status, setStatus] = useState<Status>({ type: 'idle' })
+interface UseSettingsArgs {
+  settings: Settings
+  cameras: CameraInfo[]
+  loadError?: string | null
+}
 
-  useEffect(() => {
-    let cancelled = false
-
-    const load = async () => {
-      setIsLoading(true)
-      setStatus({ type: 'idle' })
-
-      try {
-        const loadedSettings = await invoke<Settings>('load_settings')
-        if (!cancelled) {
-          setSettings(loadedSettings)
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setStatus({
-            type: 'error',
-            message: `設定の読み込みに失敗しました: ${String(e)}`,
-          })
-        }
-      }
-
-      try {
-        const cameraList = await invoke<CameraInfo[]>('list_cameras')
-        if (!cancelled) {
-          setCameras(cameraList)
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setStatus({
-            type: 'error',
-            message: `カメラ一覧の取得に失敗しました: ${String(e)}`,
-          })
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    load()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
+export function useSettings({
+  settings: initialSettings,
+  cameras: initialCameras,
+  loadError = null,
+}: UseSettingsArgs) {
+  const [settings, setSettings] = useState<Settings>(initialSettings)
+  const [cameras] = useState<CameraInfo[]>(initialCameras)
+  const [status, setStatus] = useState<Status>(
+    loadError ? { type: 'error', message: loadError } : { type: 'idle' },
+  )
 
   const save = async () => {
     setStatus({ type: 'loading', message: '保存中...' })
@@ -145,7 +109,6 @@ export function useSettings() {
   return {
     settings,
     cameras,
-    isLoading,
     status,
     save,
     updateField,
