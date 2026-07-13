@@ -29,7 +29,9 @@ export const Route = createFileRoute('/setup/')({
 
 function SetupPending() {
   return (
-    <p className="py-8 text-center text-slate-500 text-sm">読み込み中...</p>
+    <p className="py-8 text-center text-muted-foreground text-sm">
+      読み込み中...
+    </p>
   )
 }
 
@@ -76,7 +78,7 @@ function Setup() {
           }}
         />
 
-        <div className="flex items-center gap-4">
+        <div className="flex justify-center">
           <Button disabled={status.type === 'loading'} onClick={handleSave}>
             完了
           </Button>

@@ -3,28 +3,19 @@ import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
 export const Route = createRootRoute({
   component: () => (
-    <div className="flex min-h-screen flex-col bg-[#f6f6f6] text-[#0f0f0f]">
-      <nav className="border-slate-800 border-b bg-slate-900 px-4 py-3">
-        <div className="mx-auto flex max-w-4xl items-center gap-6">
-          <span className="font-semibold text-sm text-white">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <nav className="border-border border-b bg-card px-4 py-3">
+        <div className="mx-auto flex max-w-4xl items-center justify-between">
+          <span className="font-semibold text-foreground text-sm">
             Tooth Calibrator
           </span>
-          <div className="flex gap-4">
-            <Link
-              to="/"
-              activeProps={{ className: 'text-white' }}
-              className="font-medium text-slate-300 text-sm transition-colors hover:text-white"
-            >
-              Home
-            </Link>
-            <Link
-              to="/settings"
-              activeProps={{ className: 'text-white' }}
-              className="font-medium text-slate-300 text-sm transition-colors hover:text-white"
-            >
-              設定
-            </Link>
-          </div>
+          <Link
+            to="/settings"
+            aria-label="設定"
+            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+          >
+            <span className="icon-gear" />
+          </Link>
         </div>
       </nav>
       <main className="flex-1">
@@ -35,10 +26,10 @@ export const Route = createRootRoute({
   ),
   notFoundComponent: () => (
     <div className="p-6">
-      <p className="text-slate-600 text-sm">Page not found</p>
+      <p className="text-muted-foreground text-sm">Page not found</p>
       <Link
         to="/"
-        className="mt-2 inline-block font-medium text-slate-800 text-sm hover:underline"
+        className="mt-2 inline-block font-medium text-foreground text-sm hover:underline"
       >
         Go Home
       </Link>

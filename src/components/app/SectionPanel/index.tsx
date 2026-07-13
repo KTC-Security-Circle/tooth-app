@@ -10,11 +10,11 @@ const SectionPanel: React.FC<Props> = ({ heading, className, children }) => {
   return (
     <section
       className={cn(
-        'rounded-sm border border-slate-200 bg-white p-5 shadow-sm',
+        'rounded-lg border border-border bg-card p-5 shadow-sm',
         className,
       )}
     >
-      <h2 className="mb-4 font-semibold text-slate-500 text-sm uppercase tracking-wide">
+      <h2 className="mb-4 font-semibold text-muted-foreground text-sm uppercase tracking-wide">
         {heading}
       </h2>
       {children}

@@ -11,6 +11,7 @@ import { useDeveloperMode } from '@/hooks/useDeveloperMode'
 import { useRecalibrate } from '@/hooks/useRecalibrate'
 import type { CameraInfo, Settings } from '@/hooks/useSettings'
 import { defaultSettings, useSettings } from '@/hooks/useSettings'
+import { useTheme } from '@/hooks/useTheme'
 
 export const Route = createFileRoute('/settings/')({
   loader: async () => {
@@ -43,7 +44,9 @@ const fpsOptions = [10, 15, 24, 30, 60]
 
 function SettingsPending() {
   return (
-    <p className="py-8 text-center text-slate-500 text-sm">読み込み中...</p>
+    <p className="py-8 text-center text-muted-foreground text-sm">
+      読み込み中...
+    </p>
   )
 }
 
@@ -68,12 +71,44 @@ function SettingsPage() {
     enableDeveloperMode,
   )
   const { recalibrate, recalStatus } = useRecalibrate()
+  const { theme, setTheme } = useTheme()
 
   return (
     <>
       <StatusBanner status={status} />
 
       <div className="space-y-8">
+        <SectionPanel heading="表示設定">
+          <FormField>
+            <FormField.Label htmlFor="theme">テーマ</FormField.Label>
+            <FormField.Select
+              className="sm:max-w-40"
+              id="theme"
+              value={theme}
+              onChange={(e) => {
+                const value = e.currentTarget.value
+                if (
+                  value === 'light' ||
+                  value === 'dark' ||
+                  value === 'system'
+                ) {
+                  setTheme(value)
+                }
+              }}
+            >
+              <FormField.Select.Option value="light">
+                ライト
+              </FormField.Select.Option>
+              <FormField.Select.Option value="dark">
+                ダーク
+              </FormField.Select.Option>
+              <FormField.Select.Option value="system">
+                システム
+              </FormField.Select.Option>
+            </FormField.Select>
+          </FormField>
+        </SectionPanel>
+
         <CameraSelectSection
           cameras={cameras}
           cameraLeft={settings.cameraLeft}
@@ -107,7 +142,7 @@ function SettingsPage() {
           </FormField>
         </SectionPanel>
 
-        <div className="flex items-center gap-4">
+        <div className="flex justify-center">
           <Button disabled={status.type === 'loading'} onClick={() => save()}>
             保存
           </Button>
@@ -144,7 +179,7 @@ function SettingsPage() {
                 <StatusBanner status={recalStatus} />
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="flex justify-center">
                 <Button variant="secondary" onClick={disableDeveloperMode}>
                   開発者モードを無効化
                 </Button>
@@ -156,7 +191,7 @@ function SettingsPage() {
 
       {version && (
         <p
-          className="select-none pt-8 text-center text-slate-400 text-xs"
+          className="select-none pt-8 text-center text-muted-foreground text-xs"
           onClick={handleLabelClick}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {

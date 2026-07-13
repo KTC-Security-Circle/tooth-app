@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
 import PageHeader from '@/components/app/PageHeader'
 
 export const Route = createFileRoute('/settings')({
@@ -12,6 +12,13 @@ function SettingsLayout() {
         title="設定"
         subtitle="カメラとキャリブレーションの設定を行います。"
       />
+
+      <Link
+        to="/"
+        className="mb-6 inline-flex items-center gap-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
+      >
+        ← ホーム
+      </Link>
 
       <Outlet />
     </div>

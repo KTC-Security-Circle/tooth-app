@@ -18,12 +18,13 @@ const StatusBanner: React.FC<Props> = ({ status }) => {
   return (
     <div
       className={cn(
-        'mb-6 rounded-sm border px-4 py-3 text-sm',
-        status.type === 'error' && 'border-red-200 bg-red-50 text-red-700',
+        'mb-6 rounded-lg border px-4 py-3 text-sm',
+        status.type === 'error' &&
+          'border-destructive/30 bg-destructive/10 text-destructive',
         status.type === 'success' &&
-          'border-emerald-200 bg-emerald-50 text-emerald-700',
+          'border-success/30 bg-success/10 text-success',
         status.type === 'loading' &&
-          'border-slate-200 bg-slate-100 text-slate-600',
+          'border-border bg-muted text-muted-foreground',
       )}
     >
       {status.message}

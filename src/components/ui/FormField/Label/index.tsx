@@ -10,7 +10,7 @@ const Label: React.FC<Props> = ({ htmlFor, className, children }) => {
   return (
     <label
       className={cn(
-        'self-center font-medium text-slate-700 text-sm',
+        'self-center font-medium text-secondary-foreground text-sm',
         className,
       )}
       htmlFor={htmlFor}

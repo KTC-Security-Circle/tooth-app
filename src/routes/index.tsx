@@ -14,18 +14,18 @@ export const Route = createFileRoute('/')({
 function Index() {
   return (
     <div className="mx-auto max-w-4xl p-6">
-      <header className="mb-6 border-slate-200 border-b pb-4">
-        <h1 className="font-semibold text-2xl text-slate-900">
+      <header className="mb-6 border-border border-b pb-4">
+        <h1 className="font-semibold text-2xl text-foreground">
           Tooth Calibrator
         </h1>
-        <p className="mt-1 text-slate-500 text-sm">
+        <p className="mt-1 text-muted-foreground text-sm">
           歯科用キャリブレーションアプリケーションへようこそ。
         </p>
       </header>
 
-      <div className="rounded-sm border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-slate-600 text-sm">
-          設定が完了しました。左上のナビゲーションから設定やアプリケーションの利用を開始できます。
+      <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+        <p className="text-muted-foreground text-sm">
+          設定が完了しました。右上の歯車アイコンから設定を開けます。
         </p>
       </div>
     </div>
