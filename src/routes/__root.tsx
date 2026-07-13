@@ -1,7 +1,16 @@
-import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
+import { createRootRoute, Link, Outlet, redirect } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+import { invoke } from '@tauri-apps/api/core'
 
 export const Route = createRootRoute({
+  beforeLoad: async ({ location }) => {
+    if (location.href !== '/setup') {
+      const exists = await invoke<boolean>('settings_exists')
+      if (!exists) {
+        throw redirect({ to: '/setup' })
+      }
+    }
+  },
   component: () => (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <nav className="border-border border-b bg-card px-4 py-3">

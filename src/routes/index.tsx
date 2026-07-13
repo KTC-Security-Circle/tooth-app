@@ -1,13 +1,6 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
-import { invoke } from '@tauri-apps/api/core'
+import { createFileRoute } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/')({
-  beforeLoad: async () => {
-    const exists = await invoke<boolean>('settings_exists')
-    if (!exists) {
-      throw redirect({ to: '/setup' })
-    }
-  },
   component: Index,
 })
 
