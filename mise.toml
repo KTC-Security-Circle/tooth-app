@@ -1,24 +1,54 @@
 [tools]
 bun = "1.3.14"
 clang = "latest"
+"conda:libclang" = "22.1.8"
 mold = "latest"
 rust = "1.96.0"
 
+[env]
+LIBCLANG_PATH = "{{env.HOME}}/.local/share/mise/installs/conda-libclang/22.1.8/lib"
+
+[tasks.dev]
+description = "デスクトップアプリを起動"
+run = "bun tauri dev"
+
+[tasks."dev:web"]
+description = "フロントエンドだけ起動 (port 1420)"
+run = "bun dev"
+
+[tasks.build]
+description = "フロントエンドのみビルド"
+run = "bun build"
+
+[tasks."build:app"]
+description = "デスクトップアプリをビルド"
+run = "bun tauri build"
+
+[tasks.type]
+description = "型検査"
+run = "bun type"
+
+[tasks.lint]
+description = "リント・フォーマット修正"
+run = "bun check"
+
 [tasks."check-rs"]
+description = "Rust 側の検証 (src-tauri/)"
 dir = "src-tauri"
 run = [
-  "cargo fmt",
+  "cargo fmt --all",
   "cargo clippy",
 ]
 
 [tasks."check-ts"]
+description = "TypeScript 側の検証"
 run = [
   "bun check",
   "bun type",
 ]
 
 [tasks.check]
-description = "Run all checks"
+description = "全体チェック (Rust + TypeScript)"
 depends = [
   "check-rs",
   "check-ts",

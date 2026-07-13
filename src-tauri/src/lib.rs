@@ -1,14 +1,26 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+#[cfg(not(target_os = "linux"))]
+compile_error!(
+    "This application is Linux-only. Build on Linux or use a Linux cross-compilation toolchain."
+);
+
+mod commands;
+mod state;
+mod utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            commands::greet::greet,
+            commands::camera::list_cameras,
+            commands::load_settings::load_settings,
+            commands::recalibrate::recalibrate,
+            commands::default_calibration_path::default_calibration_path,
+            commands::settings_exists::settings_exists,
+            commands::update_settings::update_settings,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

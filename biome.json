@@ -14,7 +14,8 @@
             "**/biome.{json,jsonc}",
             "**/package.json",
             "**/tsconfig*.json",
-            "**/src/**/*"
+            "**/src/**/*",
+            "!**/routeTree.gen.ts"
         ]
     },
     "formatter": {
@@ -61,6 +62,11 @@
             "enabled": true,
             "indentStyle": "space",
             "indentWidth": 4
+        }
+    },
+    "css": {
+        "parser": {
+            "tailwindDirectives": true
         }
     }
 }
