@@ -14,7 +14,7 @@ export const Route = createFileRoute('/setup/')({
         invoke<CameraInfo[]>('list_cameras'),
         invoke<string>('default_calibration_path'),
       ])
-      return { cameras, calibrationPath, loadError: null as string | null }
+      return { cameras, calibrationPath, loadError: null }
     } catch (e) {
       return {
         cameras: [] as CameraInfo[],
