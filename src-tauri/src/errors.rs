@@ -51,6 +51,8 @@ impl serde::Serialize for AppError {
 impl From<anyhow::Error> for AppError {
     fn from(e: anyhow::Error) -> Self {
         // {:#} でコンテキストチェイン全体を表示 ("context: source error")
-        AppError::Internal(format!("{:#}", e))
+        let msg = format!("{:#}", e);
+        log::error!("{}", msg);
+        AppError::Internal(msg)
     }
 }

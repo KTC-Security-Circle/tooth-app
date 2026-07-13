@@ -25,9 +25,9 @@ pub fn list_cameras() -> Result<Vec<CameraInfo>, AppError> {
                         });
                     }
                 }
-                Err(e) => eprintln!("Warning: cannot query caps for {}: {}", path, e),
+                Err(e) => log::warn!("cannot query caps for {}: {}", path, e),
             },
-            Err(e) => eprintln!("Warning: cannot open {}: {}", path, e),
+            Err(e) => log::warn!("cannot open {}: {}", path, e),
         }
     }
     Ok(cameras)

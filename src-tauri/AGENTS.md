@@ -54,3 +54,23 @@ Tauri の状態管理やコマンド間で共有されるデータ構造 (構造
 - エラー型は `src/errors.rs` の `AppError` (thiserror + serde::Serialize) を使う。内部ヘルパーでは `anyhow::Result` + `.context()` でコンテキストを付与し、コマンド境界で `AppError` に変換する
 - ファイルが存在しないなどの「期待される不在」はエラーにせずデフォルト値を返すなど、呼び出し側が困らない挙動にする
 - CI の clippy は `cargo clippy -- -D warnings` で警告をエラー扱いする
+
+## Logging
+
+`tauri-plugin-log` + `log` クレートでロギングを統一する。`println!` / `eprintln!` は使わず、`log` マクロ (`log::error!` / `log::warn!` / `log::info!` / `log::debug!`) を使う。
+
+### ログレベルの目安
+
+| レベル | 用途 |
+|--------|------|
+| `error!` | インフラエラー・IOエラー・予期しない失敗 |
+| `warn!` | リカバリ可能な問題 (カメラを開けない、設定パース失敗でデフォルトフォールバックなど) |
+| `info!` | 通常の操作ログ |
+| `debug!` | 開発時の詳細トレース |
+
+### 設定 (lib.rs)
+
+- 出力先: Stdout (常時) + Webview (開発時のみ) + LogDir (本番のみ)
+- ログレベル: 開発時 `Debug`、本番 `Info` (`cfg!(debug_assertions)` で切り替え)
+- ファイルローテーション: 10MB ごと、`KeepOne` 戦略 (本番のみ)
+- フロントエンド: `@tauri-apps/plugin-log` の `attachConsole()` で Rust のログをブラウザコンソールに転送

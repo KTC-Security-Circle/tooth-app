@@ -70,8 +70,8 @@ impl Settings {
             Ok(contents) => match serde_json::from_str::<Settings>(&contents) {
                 Ok(settings) => Ok(settings),
                 Err(e) => {
-                    eprintln!(
-                        "Warning: failed to parse settings file '{}': {}. Using defaults.",
+                    log::warn!(
+                        "failed to parse settings file '{}': {}. Using defaults.",
                         path.display(),
                         e
                     );
@@ -82,11 +82,11 @@ impl Settings {
                 // File doesn't exist yet — return defaults
                 Ok(Settings::default())
             }
-            Err(e) => Err(AppError::Io(format!(
-                "Failed to read settings file '{}': {}",
-                path.display(),
-                e
-            ))),
+            Err(e) => {
+                let msg = format!("Failed to read settings file '{}': {}", path.display(), e);
+                log::error!("{}", msg);
+                Err(AppError::Io(msg))
+            }
         }
     }
 
@@ -124,15 +124,16 @@ impl Settings {
     pub fn save(&self, app: &tauri::AppHandle) -> Result<(), AppError> {
         let path = config_file_path(app)?;
 
-        let contents = serde_json::to_string_pretty(&self)
-            .map_err(|e| AppError::Config(format!("Failed to serialize settings: {}", e)))?;
+        let contents = serde_json::to_string_pretty(&self).map_err(|e| {
+            let msg = format!("Failed to serialize settings: {}", e);
+            log::error!("{}", msg);
+            AppError::Config(msg)
+        })?;
 
         std::fs::write(&path, &contents).map_err(|e| {
-            AppError::Io(format!(
-                "Failed to write settings to '{}': {}",
-                path.display(),
-                e
-            ))
+            let msg = format!("Failed to write settings to '{}': {}", path.display(), e);
+            log::error!("{}", msg);
+            AppError::Io(msg)
         })?;
 
         Ok(())

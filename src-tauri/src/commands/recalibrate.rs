@@ -2,6 +2,6 @@ use crate::errors::AppError;
 
 #[tauri::command]
 pub async fn recalibrate() -> Result<(), AppError> {
-    println!("[recalibrate] called (stub)");
+    log::info!("[recalibrate] called (stub)");
     Ok(())
 }
