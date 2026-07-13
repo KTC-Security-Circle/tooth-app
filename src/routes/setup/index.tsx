@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { invoke } from '@tauri-apps/api/core'
 import CameraSelectSection from '@/components/app/CameraSelectSection'
-import PageHeader from '@/components/app/PageHeader'
 import Button from '@/components/ui/Button'
 import StatusBanner from '@/components/ui/StatusBanner'
 import type { CameraInfo } from '@/hooks/useSettings'
@@ -57,12 +56,7 @@ function Setup() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <PageHeader
-        title="初期設定"
-        subtitle="カメラの初回セットアップを行います。"
-      />
-
+    <>
       <StatusBanner status={status} />
 
       <div className="space-y-8">
@@ -84,6 +78,6 @@ function Setup() {
           </Button>
         </div>
       </div>
-    </div>
+    </>
   )
 }
