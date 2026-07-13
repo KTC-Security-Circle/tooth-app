@@ -32,16 +32,10 @@ Component/
 サブコンポーネント (Compound Component パターン) がある場合は、サブコンポーネントも同様にフォルダ + `index.tsx` で定義し、親の `index.tsx` で import して静的プロパティとして付与する。
 
 ```
-FormField/
-├─ index.tsx              # FormField 本体 + Label/Control/Select を静的プロパティで付与
-├─ Label/
-│  └─ index.tsx
-├─ Control/
-│  └─ index.tsx
-└─ Select/
-   ├─ index.tsx           # Select 本体 + Option を静的プロパティで付与
-   └─ Option/
-      └─ index.tsx
+Component/
+├─ index.tsx              # 本体 + SubComponent を静的プロパティで付与
+├─ SubComponent/
+│  ├─ index.tsx
 ```
 
 ### コンポーネントの形式
@@ -52,7 +46,7 @@ FormField/
 
 ```tsx
 interface Props {
-  // ...
+  ...
 }
 
 const Component: React.FC<Props> = ({ ... }) => {
@@ -67,24 +61,21 @@ export default Component
 特定のコンポーネントと組み合わせて用いるようなコンポーネントは親コンポーネントの静的プロパティとして公開する。親の `index.tsx` で `Component.SubComponent = SubComponent` のように付与する。
 
 ```tsx
-const FormField: React.FC<Props> & {
-  Label: typeof Label
-  Control: typeof Control
+const Component: React.FC<Props> & {
+  SubComponent: typeof SubComponent
 } = ({ ... }) => { ... }
 
-FormField.Label = Label
-FormField.Control = Control
+Component.SubComponent = SubComponent
 
-export default FormField
+export default Component
 ```
 
 使用側:
 
 ```tsx
-<FormField>
-  <FormField.Label htmlFor="...">...</FormField.Label>
-  <FormField.Select>...</FormField.Select>
-</FormField>
+<Component>
+  <Component.SubComponent>...</Component.SubComponent>
+</Component>
 ```
 
 ### バレルエクスポートしない
