@@ -1,3 +1,8 @@
+#[cfg(not(target_os = "linux"))]
+compile_error!(
+    "This application is Linux-only. Build on Linux or use a Linux cross-compilation toolchain."
+);
+
 mod commands;
 mod state;
 mod utils;
