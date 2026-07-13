@@ -7,9 +7,11 @@ export type Settings = {
   cameraLeft: string
   cameraRight: string
   fps: number
-  calibrationImagePath: string
   developerMode: boolean
+  calibrationImagePath?: string
 }
+
+export type SettingsPatch = Partial<Settings>
 
 export type CameraInfo = {
   name: string
@@ -20,7 +22,6 @@ export const defaultSettings: Settings = {
   cameraLeft: '',
   cameraRight: '',
   fps: 30,
-  calibrationImagePath: '',
   developerMode: false,
 }
 
@@ -28,14 +29,12 @@ interface UseSettingsArgs {
   settings: Settings
   cameras: CameraInfo[]
   loadError?: string | null
-  requireCalibrationPath?: boolean
 }
 
 export function useSettings({
   settings: initialSettings,
   cameras: initialCameras,
   loadError = null,
-  requireCalibrationPath = false,
 }: UseSettingsArgs) {
   const [settings, setSettings] = useState<Settings>(initialSettings)
   const [cameras] = useState<CameraInfo[]>(initialCameras)
@@ -52,27 +51,18 @@ export function useSettings({
       setStatus({ type: 'error', message: '右カメラを選択してください' })
       return false
     }
-    if (requireCalibrationPath && !settings.calibrationImagePath) {
-      setStatus({
-        type: 'error',
-        message: 'キャリブレーション用画像保存パスを指定してください',
-      })
-      return false
-    }
-
-    try {
-      await invoke<void>('validate_settings', { settings })
-    } catch (e) {
-      setStatus({
-        type: 'error',
-        message: String(e),
-      })
-      return false
-    }
 
     setStatus({ type: 'loading', message: '保存中...' })
     try {
-      await invoke<void>('save_settings', { settings })
+      const patch: SettingsPatch = {
+        cameraLeft: settings.cameraLeft,
+        cameraRight: settings.cameraRight,
+        fps: settings.fps,
+      }
+      if (settings.calibrationImagePath !== undefined) {
+        patch.calibrationImagePath = settings.calibrationImagePath
+      }
+      await invoke<void>('update_settings', { patch })
       setStatus({ type: 'success', message: '設定を保存しました' })
       return true
     } catch (e) {
@@ -99,12 +89,13 @@ export function useSettings({
   }
 
   const enableDeveloperMode = async () => {
-    const nextSettings = { ...settings, developerMode: true }
-    setSettings(nextSettings)
+    setSettings((prev) => ({ ...prev, developerMode: true }))
 
     setStatus({ type: 'loading', message: '保存中...' })
     try {
-      await invoke<void>('save_settings', { settings: nextSettings })
+      await invoke<void>('update_settings', { patch: { developerMode: true } })
+      const loaded = await invoke<Settings>('load_settings')
+      setSettings(loaded)
       setStatus({
         type: 'success',
         message: '開発者モードを有効にしました',
@@ -118,12 +109,16 @@ export function useSettings({
   }
 
   const disableDeveloperMode = async () => {
-    const nextSettings = { ...settings, developerMode: false }
-    setSettings(nextSettings)
+    setSettings((prev) => ({ ...prev, developerMode: false }))
 
     setStatus({ type: 'loading', message: '保存中...' })
     try {
-      await invoke<void>('save_settings', { settings: nextSettings })
+      await invoke<void>('update_settings', { patch: { developerMode: false } })
+      setSettings((prev) => ({
+        ...prev,
+        developerMode: false,
+        calibrationImagePath: undefined,
+      }))
       setStatus({
         type: 'success',
         message: '開発者モードを無効にしました',

@@ -11,11 +11,10 @@ pub fn run() {
             commands::greet::greet,
             commands::camera::list_cameras,
             commands::load_settings::load_settings,
-            commands::save_settings::save_settings,
             commands::recalibrate::recalibrate,
             commands::default_calibration_path::default_calibration_path,
             commands::settings_exists::settings_exists,
-            commands::validate_settings::validate_settings,
+            commands::update_settings::update_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

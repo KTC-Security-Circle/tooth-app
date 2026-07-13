@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import CameraSelectSection from '@/components/app/CameraSelectSection'
-import PageHeader from '@/components/app/PageHeader'
 import SectionPanel from '@/components/app/SectionPanel'
 import Button from '@/components/ui/Button'
 import FormField from '@/components/ui/FormField'
@@ -15,15 +15,22 @@ import { defaultSettings, useSettings } from '@/hooks/useSettings'
 export const Route = createFileRoute('/settings/')({
   loader: async () => {
     try {
-      const [settings, cameras] = await Promise.all([
+      const [settings, cameras, version] = await Promise.all([
         invoke<Settings>('load_settings'),
         invoke<CameraInfo[]>('list_cameras'),
+        getVersion(),
       ])
-      return { settings, cameras, loadError: null as string | null }
+      return {
+        settings,
+        cameras,
+        version,
+        loadError: null,
+      }
     } catch (e) {
       return {
         settings: defaultSettings,
         cameras: [] as CameraInfo[],
+        version: '',
         loadError: `設定の読み込みに失敗しました: ${String(e)}`,
       }
     }
@@ -44,6 +51,7 @@ function SettingsPage() {
   const {
     settings: initialSettings,
     cameras,
+    version,
     loadError,
   } = Route.useLoaderData()
   const {
@@ -62,13 +70,7 @@ function SettingsPage() {
   const { recalibrate, recalStatus } = useRecalibrate()
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <PageHeader
-        title="設定"
-        subtitle="カメラとキャリブレーションの設定を行います。"
-        onTitleClick={handleLabelClick}
-      />
-
+    <>
       <StatusBanner status={status} />
 
       <div className="space-y-8">
@@ -106,7 +108,7 @@ function SettingsPage() {
         </SectionPanel>
 
         <div className="flex items-center gap-4">
-          <Button disabled={status.type === 'loading'} onClick={save}>
+          <Button disabled={status.type === 'loading'} onClick={() => save()}>
             保存
           </Button>
         </div>
@@ -123,7 +125,7 @@ function SettingsPage() {
                     id="calibration-path"
                     readOnly
                     type="text"
-                    value={settings.calibrationImagePath}
+                    value={settings.calibrationImagePath ?? ''}
                   />
                   <Button variant="secondary" onClick={browsePath}>
                     参照...
@@ -151,6 +153,21 @@ function SettingsPage() {
           </SectionPanel>
         )}
       </div>
-    </div>
+
+      {version && (
+        <p
+          className="select-none pt-8 text-center text-slate-400 text-xs"
+          onClick={handleLabelClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleLabelClick()
+            }
+          }}
+        >
+          バージョン {version}
+        </p>
+      )}
+    </>
   )
 }

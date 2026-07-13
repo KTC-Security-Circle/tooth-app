@@ -41,12 +41,11 @@ function Setup() {
       cameraLeft: '',
       cameraRight: '',
       fps: 30,
-      calibrationImagePath: calibrationPath,
       developerMode: false,
+      calibrationImagePath: calibrationPath,
     },
     cameras,
     loadError,
-    requireCalibrationPath: true,
   })
 
   const handleSave = async () => {

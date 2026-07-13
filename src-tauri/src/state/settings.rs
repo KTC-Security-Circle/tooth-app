@@ -8,8 +8,44 @@ pub struct Settings {
     pub camera_left: String,
     pub camera_right: String,
     pub fps: u32,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub calibration_image_path: String,
     pub developer_mode: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsPatch {
+    #[serde(default)]
+    pub camera_left: Option<String>,
+    #[serde(default)]
+    pub camera_right: Option<String>,
+    #[serde(default)]
+    pub fps: Option<u32>,
+    #[serde(default)]
+    pub calibration_image_path: Option<String>,
+    #[serde(default)]
+    pub developer_mode: Option<bool>,
+}
+
+impl SettingsPatch {
+    pub fn apply_to(&self, settings: &mut Settings) {
+        if let Some(v) = &self.camera_left {
+            settings.camera_left = v.clone();
+        }
+        if let Some(v) = &self.camera_right {
+            settings.camera_right = v.clone();
+        }
+        if let Some(v) = self.fps {
+            settings.fps = v;
+        }
+        if let Some(v) = &self.calibration_image_path {
+            settings.calibration_image_path = v.clone();
+        }
+        if let Some(v) = self.developer_mode {
+            settings.developer_mode = v;
+        }
+    }
 }
 
 impl Default for Settings {
