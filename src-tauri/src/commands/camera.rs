@@ -1,3 +1,4 @@
+use crate::errors::AppError;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -7,7 +8,7 @@ pub struct CameraInfo {
 }
 
 #[tauri::command]
-pub fn list_cameras() -> Result<Vec<CameraInfo>, String> {
+pub fn list_cameras() -> Result<Vec<CameraInfo>, AppError> {
     let mut cameras = Vec::new();
     for node in v4l::context::enum_devices() {
         let path = node.path().to_string_lossy().to_string();

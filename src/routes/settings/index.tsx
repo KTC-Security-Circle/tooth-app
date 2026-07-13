@@ -12,6 +12,7 @@ import { useRecalibrate } from '@/hooks/useRecalibrate'
 import type { CameraInfo, Settings } from '@/hooks/useSettings'
 import { defaultSettings, useSettings } from '@/hooks/useSettings'
 import { useTheme } from '@/hooks/useTheme'
+import { extractErrorMessage } from '@/lib/extractError'
 
 export const Route = createFileRoute('/settings/')({
   loader: async () => {
@@ -32,7 +33,7 @@ export const Route = createFileRoute('/settings/')({
         settings: defaultSettings,
         cameras: [] as CameraInfo[],
         version: '',
-        loadError: `設定の読み込みに失敗しました: ${String(e)}`,
+        loadError: `設定の読み込みに失敗しました: ${extractErrorMessage(e)}`,
       }
     }
   },

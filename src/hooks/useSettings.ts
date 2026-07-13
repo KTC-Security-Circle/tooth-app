@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
+import { extractErrorMessage } from '@/lib/extractError'
 
 export type Settings = {
   cameraLeft: string
@@ -68,7 +69,7 @@ export function useSettings({
     } catch (e) {
       setStatus({
         type: 'error',
-        message: `保存に失敗しました: ${String(e)}`,
+        message: `保存に失敗しました: ${extractErrorMessage(e)}`,
       })
       return false
     }
@@ -103,7 +104,7 @@ export function useSettings({
     } catch (e) {
       setStatus({
         type: 'error',
-        message: `開発者モードの保存に失敗しました: ${String(e)}`,
+        message: `開発者モードの保存に失敗しました: ${extractErrorMessage(e)}`,
       })
     }
   }
@@ -126,7 +127,7 @@ export function useSettings({
     } catch (e) {
       setStatus({
         type: 'error',
-        message: `開発者モードの保存に失敗しました: ${String(e)}`,
+        message: `開発者モードの保存に失敗しました: ${extractErrorMessage(e)}`,
       })
     }
   }

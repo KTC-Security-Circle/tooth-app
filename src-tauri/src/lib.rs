@@ -4,6 +4,7 @@ compile_error!(
 );
 
 mod commands;
+mod errors;
 mod state;
 mod utils;
 

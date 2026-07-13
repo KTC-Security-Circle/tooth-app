@@ -13,6 +13,7 @@ src-tauri/
 └─ src/
    ├─ main.rs              # Tauri エントリ (tooth_app_lib::run を呼ぶのみ)
    ├─ lib.rs               # Tauri ビルダー設定・コマンド登録
+   ├─ errors.rs            # アプリ全体のエラー型 (AppError)
    ├─ commands/            # Tauri コマンドの実装
    ├─ state/               # データモデル・状態構造体
    └─ utils/               # ユーティリティ関数
@@ -42,9 +43,14 @@ Tauri の状態管理やコマンド間で共有されるデータ構造 (構造
 
 コマンド横断で使う純粋なヘルパー関数を配置する。Tauri の `AppHandle` を受け取るパス系ユーティリティなど。
 
+### `errors.rs` — エラー型
+
+アプリ全体のエラー型 `AppError` を定義する。`thiserror::Error` でエラー種別を enum で表現し、`serde::Serialize` を手動実装してフロントエンドに `{ "kind": "...", "message": "..." }` の構造化エラーとして渡す。内部ヘルパー関数 (`utils/`) では `anyhow::Result` と `.context()` を使い、コマンド境界で `AppError` に変換する (`From<anyhow::Error> for AppError` により `?` で自動変換される)。
+
 ## Code Style
 
-- `unwrap` / `expect` / `panic!` は避け、明示的なエラーハンドリング (`Result` + `map_err(|e| format!(...))`) を行う
-- コマンドの戻り値は `Result<T, String>` とし、エラーメッセージにコンテキスト (パス・原因) を含める
+- `unwrap` / `expect` / `panic!` は避け、明示的なエラーハンドリング (`Result` + `AppError`) を行う
+- コマンドの戻り値は `Result<T, AppError>` とし、エラーメッセージにコンテキスト (パス・原因) を含める
+- エラー型は `src/errors.rs` の `AppError` (thiserror + serde::Serialize) を使う。内部ヘルパーでは `anyhow::Result` + `.context()` でコンテキストを付与し、コマンド境界で `AppError` に変換する
 - ファイルが存在しないなどの「期待される不在」はエラーにせずデフォルト値を返すなど、呼び出し側が困らない挙動にする
 - CI の clippy は `cargo clippy -- -D warnings` で警告をエラー扱いする

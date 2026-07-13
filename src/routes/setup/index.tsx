@@ -5,6 +5,7 @@ import Button from '@/components/ui/Button'
 import StatusBanner from '@/components/ui/StatusBanner'
 import type { CameraInfo } from '@/hooks/useSettings'
 import { useSettings } from '@/hooks/useSettings'
+import { extractErrorMessage } from '@/lib/extractError'
 
 export const Route = createFileRoute('/setup/')({
   loader: async () => {
@@ -18,7 +19,7 @@ export const Route = createFileRoute('/setup/')({
       return {
         cameras: [] as CameraInfo[],
         calibrationPath: '',
-        loadError: `初期設定の読み込みに失敗しました: ${String(e)}`,
+        loadError: `初期設定の読み込みに失敗しました: ${extractErrorMessage(e)}`,
       }
     }
   },
