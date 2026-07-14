@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
+import { extractErrorMessage } from '@/lib/extractError'
 
 export function useRecalibrate() {
   const [recalStatus, setRecalStatus] = useState<Status>({ type: 'idle' })
@@ -19,7 +20,7 @@ export function useRecalibrate() {
     } catch (e) {
       setRecalStatus({
         type: 'error',
-        message: `再キャリブレーションに失敗しました: ${String(e)}`,
+        message: `再キャリブレーションに失敗しました: ${extractErrorMessage(e)}`,
       })
     }
   }

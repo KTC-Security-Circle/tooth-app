@@ -1,8 +1,12 @@
 import { createRouter, RouterProvider } from '@tanstack/react-router'
+import { attachConsole } from '@tauri-apps/plugin-log'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { routeTree } from './routeTree.gen'
 import './styles.css'
+
+// Rust 側のログをブラウザコンソールに転送する
+attachConsole().catch(() => {})
 
 const router = createRouter({
   routeTree,
