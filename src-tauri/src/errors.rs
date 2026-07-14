@@ -1,7 +1,9 @@
 use serde::ser::Serializer;
 
-/// アプリ全体のエラー型。`serde::Serialize` を手動実装し、フロントエンドに
-/// `{ "kind": "...", "message": "..." }` の構造化エラーとして渡す。
+/// アプリ全体のエラー型。各バリアントは技術的詳細 (英語) を保持し、
+/// `log::error!` でログ出力される。`serde::Serialize` では技術的詳細を隠し、
+/// ユーザー向けの汎用メッセージ (日本語) に置き換えてフロントエンドに渡す。
+/// `Validation` のみ、ユーザー向けメッセージをそのまま渡す。
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("{0}")]
@@ -36,7 +38,15 @@ impl serde::Serialize for AppError {
     where
         S: Serializer,
     {
-        let message = self.to_string();
+        let message = match self {
+            // Validation はユーザー向けメッセージをそのまま渡す
+            Self::Validation(msg) => msg.clone(),
+            // それ以外は技術的詳細を隠し、ユーザー向けの汎用メッセージに置き換える
+            Self::Io(_) | Self::Config(_) | Self::Internal(_) => {
+                "しばらくしてからもう一度お試しください".to_string()
+            }
+            Self::Camera(_) => "カメラを確認してください".to_string(),
+        };
         let kind = match self {
             Self::Io(_) => AppErrorKind::Io(message),
             Self::Config(_) => AppErrorKind::Config(message),
