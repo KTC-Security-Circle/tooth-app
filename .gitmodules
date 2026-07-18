@@ -1,0 +1,6 @@
+[submodule "tools/core"]
+	path = tools/core
+	url = git@github.com:KTC-Security-Circle/ToothProjectTools.git
+[submodule "tools/3d-matching"]
+	path = tools/3d-matching
+	url = git@github.com:KTC-Security-Circle/3d-matching.git
