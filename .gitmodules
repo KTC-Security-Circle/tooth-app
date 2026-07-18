@@ -4,3 +4,4 @@
 [submodule "tools/3d-matching"]
 	path = tools/3d-matching
 	url = git@github.com:KTC-Security-Circle/3d-matching.git
+	branch = develop
