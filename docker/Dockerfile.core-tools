@@ -1,0 +1,47 @@
+# Stage 1: OpenCV 4.10 静的リンクライブラリのビルド
+FROM debian:bookworm AS opencv-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    ninja-build \
+    pkg-config \
+    git \
+    curl \
+    ca-certificates \
+    unzip \
+    libgtk-3-dev \
+    libx11-dev \
+    libxrandr-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY tools/core/scripts/build_opencv_4_10_static.sh ./
+RUN chmod +x build_opencv_4_10_static.sh && ./build_opencv_4_10_static.sh
+
+# Stage 2: tooth-backend のビルド
+FROM opencv-builder AS core-tools-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    mold \
+    ccache \
+    cppcheck \
+    libspdlog-dev \
+    libgtest-dev \
+    file \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/tools/core
+COPY tools/core/ ./
+
+ENV OpenCV_DIR=/root/.local/opencv/4.10.0-static/lib/cmake/opencv4
+RUN cmake --preset release-opencv-4.10-static && cmake --build --preset release-opencv-4.10-static --parallel
+
+# Stage 3: 成果物取り出し用
+FROM scratch AS export
+COPY --from=core-tools-builder /workspace/tools/core/build/release-opencv-4.10-static/src/serve/tooth-backend /tooth-backend
