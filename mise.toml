@@ -31,6 +31,10 @@ run = "bun run build"
 description = "Docker で tools/core の tooth-backend を静的リンクビルドし src-tauri/binaries/ に配置"
 run = "docker buildx build -f docker/Dockerfile.core-tools --target export --output type=local,dest=src-tauri/binaries/ . && mv src-tauri/binaries/tooth-backend src-tauri/binaries/tooth-backend-$(rustc --print host-tuple)"
 
+[tasks."build:core-tools:host"]
+description = "tools/core の tooth-backend をホストマシンで直接ビルドし src-tauri/binaries/ に配置 (OpenCV 4.x 静的ビルドがホストにある前提)"
+run = "cmake --preset release-opencv-4.10-static -S tools/core -B tools/core/build/release-opencv-4.10-static && cmake --build --preset release-opencv-4.10-static --parallel --build-dir tools/core/build/release-opencv-4.10-static && mkdir -p src-tauri/binaries && cp tools/core/build/release-opencv-4.10-static/src/serve/tooth-backend src-tauri/binaries/tooth-backend-$(rustc --print host-tuple)"
+
 [tasks."build:all"]
 description = "サイドカー + デスクトップアプリをビルド"
 depends = ["build:core-tools"]
