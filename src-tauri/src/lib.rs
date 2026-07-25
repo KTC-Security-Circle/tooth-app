@@ -3,6 +3,7 @@ compile_error!(
     "This application is Linux-only. Build on Linux or use a Linux cross-compilation toolchain."
 );
 
+use tauri::Manager;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 mod commands;
@@ -12,7 +13,7 @@ mod utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(if cfg!(debug_assertions) {
@@ -38,6 +39,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .manage(state::core_tools::CoreToolsState::default())
         .invoke_handler(tauri::generate_handler![
             commands::greet::greet,
             commands::camera::list_cameras,
@@ -46,7 +48,27 @@ pub fn run() {
             commands::default_calibration_path::default_calibration_path,
             commands::settings_exists::settings_exists,
             commands::update_settings::update_settings,
+            commands::start_core_tools::start_core_tools,
+            commands::send_core_tools_command::send_core_tools_command,
+            commands::stop_core_tools::stop_core_tools,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // アプリ終了時に core-tools (tooth-backend) を確実に kill する (ゾンビプロセス対策)
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            if let Some(core_tools) = app_handle.try_state::<state::core_tools::CoreToolsState>() {
+                if let Some(child) = core_tools
+                    .child
+                    .lock()
+                    .expect("core-tools child mutex poisoned")
+                    .take()
+                {
+                    let _ = child.kill();
+                    log::info!("core-tools: killed tooth-backend on app exit");
+                }
+            }
+        }
+    });
 }

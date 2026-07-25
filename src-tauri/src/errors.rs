@@ -16,6 +16,8 @@ pub enum AppError {
     #[allow(dead_code)]
     Camera(String),
     #[error("{0}")]
+    CoreTools(String),
+    #[error("{0}")]
     Internal(String),
 }
 
@@ -30,6 +32,7 @@ enum AppErrorKind {
     Config(String),
     Validation(String),
     Camera(String),
+    CoreTools(String),
     Internal(String),
 }
 
@@ -46,12 +49,17 @@ impl serde::Serialize for AppError {
                 "しばらくしてからもう一度お試しください".to_string()
             }
             Self::Camera(_) => "カメラを確認してください".to_string(),
+            Self::CoreTools(_) => {
+                "処理エンジンの起動に失敗しました。しばらくしてからもう一度お試しください"
+                    .to_string()
+            }
         };
         let kind = match self {
             Self::Io(_) => AppErrorKind::Io(message),
             Self::Config(_) => AppErrorKind::Config(message),
             Self::Validation(_) => AppErrorKind::Validation(message),
             Self::Camera(_) => AppErrorKind::Camera(message),
+            Self::CoreTools(_) => AppErrorKind::CoreTools(message),
             Self::Internal(_) => AppErrorKind::Internal(message),
         };
         kind.serialize(serializer)
