@@ -4,17 +4,26 @@
 
 ツールチェインのコマンドは `mise x -- <cmd>` を使う。
 
-- デスクトップアプリを起動: `bun tauri dev`
-  - フロントエンドだけ起動したい場合: `bun dev` (port 1420)
-- フロントエンドのみビルド: `bun build`
-- デスクトップアプリをビルド: `bun tauri build`
-- 型検査: `bun type`
-- リント・フォーマット修正: `bun check`
+- セットアップ: `mise run setup` (OpenCV 4.10 静的ビルド + submodule 初期化 + `bun install`)
+- デスクトップアプリを起動: `mise run dev` (サイドカー含む)
+  - フロントエンドだけ起動したい場合: `mise run dev:web` (port 1420)
+- フロントエンドのみビルド: `mise run build`
+- サイドカー (tooth-backend) のみビルド: `mise run build:core-tools`
+- サイドカー + デスクトップアプリをビルド: `mise run build:all`
+- 型検査: `mise run type`
+- リント・フォーマット修正: `mise run lint`
 - Rust 側の検証 (`src-tauri/`)
   - `cargo fmt --all`
   - `cargo clippy`
   - または `cargo lint` / `cargo format`
-- 全体チェック: `mise run check` (Rust + TypeScript)
+- 全体チェック: `mise run check` (Rust + TypeScript + core-tools)
+
+### core-tools (tooth-backend) ビルド
+
+- ホストマシンで直接ビルド
+- 前提: OpenCV 4.10 静的ビルドが `~/.local/opencv/4.10.0-static` にあること (`mise run setup` または `mise run build:opencv` で構築)
+- システム依存: `pkg-config`, `cmake`, `ninja`, `libgtk-3-dev`, `liblapack-dev`, `libblas-dev`, `libcblas-dev`, `liblapacke-dev`, `git`
+- 成果物: `src-tauri/binaries/tooth-backend-<host-tuple>`
 
 ## Project Structure
 
