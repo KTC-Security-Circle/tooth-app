@@ -7,9 +7,11 @@ rust = "1.96.0"
 
 [env]
 LIBCLANG_PATH = "{{env.HOME}}/.local/share/mise/installs/conda-libclang/22.1.8/lib"
+OpenCV_DIR = "{{env.HOME}}/.local/opencv/4.10.0-static/lib/cmake/opencv4"
 
 [tasks.setup]
-description = "プロジェクトのセットアップ (submodule 初期化 + 依存インストール)"
+description = "プロジェクトのセットアップ (OpenCV 静的ビルド + submodule 初期化 + 依存インストール)"
+depends = ["build:opencv"]
 run = [
   "git submodule update --init --recursive",
   "bun install",
@@ -27,13 +29,14 @@ run = "bun dev"
 description = "フロントエンドのみビルド"
 run = "bun run build"
 
-[tasks."build:core-tools"]
-description = "Docker で tools/core の tooth-backend を静的リンクビルドし src-tauri/binaries/ に配置"
-run = "docker buildx build -f docker/Dockerfile.core-tools --target export --output type=local,dest=src-tauri/binaries/ . && mv src-tauri/binaries/tooth-backend src-tauri/binaries/tooth-backend-$(rustc --print host-tuple)"
+[tasks."build:opencv"]
+description = "OpenCV 4.10 静的ビルドを ~/.local/opencv/4.10.0-static に構築 (tools/core のビルド前提)"
+run = "bash tools/core/scripts/build_opencv_4_10_static.sh"
 
-[tasks."build:core-tools:host"]
-description = "tools/core の tooth-backend をホストマシンで直接ビルドし src-tauri/binaries/ に配置 (OpenCV 4.x 静的ビルドがホストにある前提)"
-run = "cmake --preset release-opencv-4.10-static -S tools/core -B tools/core/build/release-opencv-4.10-static && cmake --build --preset release-opencv-4.10-static --parallel --build-dir tools/core/build/release-opencv-4.10-static && mkdir -p src-tauri/binaries && cp tools/core/build/release-opencv-4.10-static/src/serve/tooth-backend src-tauri/binaries/tooth-backend-$(rustc --print host-tuple)"
+[tasks."build:core-tools"]
+description = "tools/core の tooth-backend をホストマシンでビルドし src-tauri/binaries/ に配置 (要: OpenCV 4.10 静的ビルド = mise run build:opencv)"
+dir = "tools/core"
+run = "cmake --preset release-opencv-4.10-static && cmake --build --preset release-opencv-4.10-static --parallel && mkdir -p ../../src-tauri/binaries && cp build/release-opencv-4.10-static/src/serve/tooth-backend ../../src-tauri/binaries/tooth-backend-$(rustc --print host-tuple)"
 
 [tasks."build:all"]
 description = "サイドカー + デスクトップアプリをビルド"
@@ -64,9 +67,9 @@ run = [
 ]
 
 [tasks."check:core-tools"]
-description = "tools/core のビルド検証 (Docker ビルドで実施)"
+description = "tools/core のビルド検証"
 depends = ["build:core-tools"]
-run = "echo 'core-tools check is bundled into build:core-tools (Docker build)'"
+run = "echo 'core-tools check is bundled into build:core-tools (host build)'"
 
 [tasks.check]
 description = "全体チェック (Rust + TypeScript + core-tools)"

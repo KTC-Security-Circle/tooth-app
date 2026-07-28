@@ -1,8 +1,0 @@
-node_modules
-dist
-src-tauri/target
-src-tauri/binaries
-tools/core/build
-tools/core/.git
-tools/3d-matching/.git
-.git
