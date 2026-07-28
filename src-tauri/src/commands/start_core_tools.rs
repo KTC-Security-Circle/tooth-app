@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tauri::{async_runtime, Emitter, State};
+use tauri::{async_runtime, Emitter};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
@@ -28,10 +28,12 @@ const READY_TIMEOUT: Duration = Duration::from_secs(10);
 ///   それ以外は `core-tools:response` / `core-tools:event` として emit
 /// - `tokio::time::timeout(10s, ready)` で無限待ちを防止
 /// - タイムアウト/異常終了時は `Failed` 遷移 + `AppError::CoreTools` を返す
-#[tauri::command]
-pub async fn start_core_tools(
-    app: tauri::AppHandle,
-    state: State<'_, CoreToolsState>,
+///
+/// この関数は `#[tauri::command]` と `.setup()` フックの両方から呼ばれる。
+/// `.setup()` からは非ブロッキング (fire-and-forget) で起動する。
+pub async fn start_core_tools_inner(
+    app: &tauri::AppHandle,
+    state: &CoreToolsState,
 ) -> Result<(), AppError> {
     // 二重起動防止
     {
@@ -86,6 +88,7 @@ pub async fn start_core_tools(
     // Reader タスク: stdout/stderr を処理しイベント/レスポンスを emit する。
     let app_for_reader = app.clone();
     let status_for_reader = state.status.clone();
+    let terminated_for_reader = state.terminated.clone();
     async_runtime::spawn(async move {
         let mut ready_signalled = false;
         while let Some(event) = rx.recv().await {
@@ -139,6 +142,7 @@ pub async fn start_core_tools(
                         payload.code,
                         payload.signal
                     );
+                    terminated_for_reader.notify_one();
                     // ガードを await の前に確実に落とす (Send 要求)
                     let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
                     if was_idle {
@@ -209,6 +213,16 @@ pub async fn start_core_tools(
             ))
         }
     }
+}
+
+/// core-tools (tooth-backend) を起動する Tauri コマンド。
+/// 実装は `start_core_tools_inner` に委譲する。
+#[tauri::command]
+pub async fn start_core_tools(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, CoreToolsState>,
+) -> Result<(), AppError> {
+    start_core_tools_inner(&app, &state).await
 }
 
 fn lock_status(

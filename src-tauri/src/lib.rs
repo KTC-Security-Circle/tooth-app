@@ -40,9 +40,24 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(state::core_tools::CoreToolsState::default())
+        .setup(|app| {
+            // アプリ起動時に core-tools (tooth-backend) を自動起動 (非同期・非ブロッキング)。
+            // React 側の effect ライフサイクルに依存せず、アプリ全体で単一プロセスを管理する。
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app_handle.state::<state::core_tools::CoreToolsState>();
+                match commands::start_core_tools::start_core_tools_inner(&app_handle, &state).await
+                {
+                    Ok(()) => log::info!("core-tools: auto-started on app setup"),
+                    Err(e) => log::error!("core-tools: auto-start failed: {e}"),
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::greet::greet,
             commands::camera::list_cameras,
+            commands::core_tools_status::core_tools_status,
             commands::load_settings::load_settings,
             commands::recalibrate::recalibrate,
             commands::default_calibration_path::default_calibration_path,

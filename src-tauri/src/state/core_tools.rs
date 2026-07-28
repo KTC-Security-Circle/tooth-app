@@ -2,9 +2,11 @@ use std::sync::{Arc, Mutex};
 
 use tauri::async_runtime::Sender;
 use tauri_plugin_shell::process::CommandChild;
+use tokio::sync::Notify;
 
 /// core-tools (tooth-backend) の起動状態。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CoreToolsStatus {
     /// 未起動。
     #[default]
@@ -29,6 +31,7 @@ pub struct CoreToolsState {
     pub status: Arc<Mutex<CoreToolsStatus>>,
     pub cmd_tx: Arc<Mutex<Option<Sender<String>>>>,
     pub child: Arc<Mutex<Option<CommandChild>>>,
+    pub terminated: Arc<Notify>,
 }
 
 impl Default for CoreToolsState {
@@ -37,6 +40,7 @@ impl Default for CoreToolsState {
             status: Arc::new(Mutex::new(CoreToolsStatus::Idle)),
             cmd_tx: Arc::new(Mutex::new(None)),
             child: Arc::new(Mutex::new(None)),
+            terminated: Arc::new(Notify::new()),
         }
     }
 }

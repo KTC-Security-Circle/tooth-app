@@ -25,9 +25,23 @@ export type CoreToolsEvent = {
   [key: string]: unknown
 }
 
+/** core-tools の起動状態 (Rust 側 CoreToolsStatus enum と snake_case で対応) */
+export type CoreToolsStatus =
+  | 'idle'
+  | 'starting'
+  | 'ready'
+  | 'running'
+  | 'disconnected'
+  | 'failed'
+
 /** core-tools を起動する。ready event 受信 (10s タイムアウト) まで待つ。 */
 export function startCoreTools(): Promise<void> {
   return invoke<void>('start_core_tools')
+}
+
+/** core-tools の現在の起動状態を取得する。 */
+export function coreToolsStatus(): Promise<CoreToolsStatus> {
+  return invoke<CoreToolsStatus>('core_tools_status')
 }
 
 /** core-tools へ JSON Lines コマンドを送信する。書き込み自体は Writer タスクが直列化する。 */

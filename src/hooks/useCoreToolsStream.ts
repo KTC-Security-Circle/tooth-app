@@ -2,11 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
 import {
   type CoreToolsResponse,
+  coreToolsStatus,
   onCoreToolsEvent,
   onCoreToolsResponse,
   sendCoreToolsCommand,
-  startCoreTools,
-  stopCoreTools,
 } from '@/lib/coreTools'
 import { extractErrorMessage } from '@/lib/extractError'
 
@@ -53,31 +52,46 @@ export function useCoreToolsStream() {
     >
   >(new Map())
 
-  // core-tools 起動 (マウント時1回)
+  // core-tools 状態ポーリング (マウント時 + 2s 間隔)。
+  // 起動自体は Rust 側の setup hook で行われるため、ここでは状態反映のみ。
   useEffect(() => {
     let cancelled = false
-    setStatus({ type: 'loading', message: '処理エンジンを起動中...' })
+    let timer: ReturnType<typeof setInterval> | undefined
 
-    startCoreTools()
-      .then(() => {
-        if (!cancelled) {
+    const poll = async () => {
+      if (cancelled) return
+      try {
+        const s = await coreToolsStatus()
+        if (cancelled) return
+        if (s === 'running') {
           setStatus({ type: 'success', message: '処理エンジン起動完了' })
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) {
+        } else if (s === 'failed') {
           setStatus({
             type: 'error',
-            message: `処理エンジンの起動に失敗しました: ${extractErrorMessage(e)}`,
+            message: '処理エンジンの起動に失敗しました',
           })
+        } else if (s === 'disconnected') {
+          setStatus({
+            type: 'error',
+            message: '処理エンジンが切断されました',
+          })
+        } else {
+          // idle / starting / ready → 起動中表示
+          setStatus({ type: 'loading', message: '処理エンジンを起動中...' })
         }
-      })
+      } catch (e) {
+        if (!cancelled) {
+          logWarn('core_tools_status poll failed', e)
+        }
+      }
+    }
+
+    void poll()
+    timer = setInterval(poll, 2000)
 
     return () => {
       cancelled = true
-      stopCoreTools().catch((e) => {
-        logWarn('stop_core_tools failed on unmount', e)
-      })
+      if (timer) clearInterval(timer)
     }
   }, [])
 
@@ -98,6 +112,10 @@ export function useCoreToolsStream() {
 
     onCoreToolsEvent((event) => {
       switch (event.event) {
+        case 'ready': {
+          setStatus({ type: 'success', message: '処理エンジン起動完了' })
+          break
+        }
         case 'camera_opened': {
           const role = event.role as StreamRole | undefined
           if (role === 'left' || role === 'right') {

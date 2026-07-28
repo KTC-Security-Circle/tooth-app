@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod core_tools_status;
 pub mod default_calibration_path;
 pub mod greet;
 pub mod load_settings;
