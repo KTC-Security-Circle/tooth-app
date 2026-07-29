@@ -7,6 +7,24 @@
     "core:default",
     "opener:default",
     "dialog:default",
-    "log:default"
+    "log:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/tooth-backend",
+          "sidecar": true,
+          "args": [
+            "serve",
+            "--control",
+            "stdio",
+            "--mjpeg-host",
+            "127.0.0.1",
+            "--mjpeg-port",
+            "39010"
+          ]
+        }
+      ]
+    }
   ]
 }

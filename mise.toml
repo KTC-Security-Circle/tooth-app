@@ -7,6 +7,15 @@ rust = "1.96.0"
 
 [env]
 LIBCLANG_PATH = "{{env.HOME}}/.local/share/mise/installs/conda-libclang/22.1.8/lib"
+OpenCV_DIR = "{{env.HOME}}/.local/opencv/4.10.0-static/lib/cmake/opencv4"
+
+[tasks.setup]
+description = "プロジェクトのセットアップ (OpenCV 静的ビルド + submodule 初期化 + 依存インストール)"
+depends = ["build:opencv"]
+run = [
+  "git submodule update --init --recursive",
+  "bun install",
+]
 
 [tasks.dev]
 description = "デスクトップアプリを起動"
@@ -18,10 +27,20 @@ run = "bun dev"
 
 [tasks.build]
 description = "フロントエンドのみビルド"
-run = "bun build"
+run = "bun run build"
 
-[tasks."build:app"]
-description = "デスクトップアプリをビルド"
+[tasks."build:opencv"]
+description = "OpenCV 4.10 静的ビルドを ~/.local/opencv/4.10.0-static に構築 (tools/core のビルド前提)"
+run = "bash tools/core/scripts/build_opencv_4_10_static.sh"
+
+[tasks."build:core-tools"]
+description = "tools/core の tooth-backend をホストマシンでビルドし src-tauri/binaries/ に配置 (要: OpenCV 4.10 静的ビルド = mise run build:opencv)"
+dir = "tools/core"
+run = "cmake --preset release-opencv-4.10-static && cmake --build --preset release-opencv-4.10-static --parallel && mkdir -p ../../src-tauri/binaries && cp build/release-opencv-4.10-static/src/serve/tooth-backend ../../src-tauri/binaries/tooth-backend-$(rustc --print host-tuple)"
+
+[tasks."build:all"]
+description = "サイドカー + デスクトップアプリをビルド"
+depends = ["build:core-tools"]
 run = "bun tauri build"
 
 [tasks.type]
@@ -47,9 +66,15 @@ run = [
   "bun type",
 ]
 
+[tasks."check:core-tools"]
+description = "tools/core のビルド検証"
+depends = ["build:core-tools"]
+run = "echo 'core-tools check is bundled into build:core-tools (host build)'"
+
 [tasks.check]
-description = "全体チェック (Rust + TypeScript)"
+description = "全体チェック (Rust + TypeScript + core-tools)"
 depends = [
   "check-rs",
   "check-ts",
+  "check:core-tools",
 ]

@@ -12,3 +12,6 @@ pre-push:
   commands:
     type-check:
       run: "bun type"
+    core-tools:
+      glob: "tools/core/**"
+      run: "mise run check:core-tools"
