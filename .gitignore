@@ -28,3 +28,10 @@ dist-ssr
 src-tauri/binaries/
 
 .cache
+
+# CMake build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake

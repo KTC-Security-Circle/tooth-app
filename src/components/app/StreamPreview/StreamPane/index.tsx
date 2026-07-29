@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
 
 interface Props {
@@ -19,11 +19,18 @@ const StreamPane: React.FC<Props> = ({
   const [hasError, setHasError] = useState(false)
   const showStream = active && !hasError
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: streamUrl is intentionally included to reset errors on URL change
+  useEffect(() => {
+    if (active) {
+      setHasError(false)
+    }
+  }, [active, streamUrl])
+
   return (
     <div
       data-role={streamRole}
       className={cn(
-        'relative flex aspect-[4/3] flex-col overflow-hidden rounded-lg border border-border bg-muted',
+        'relative flex aspect-4/3 flex-col overflow-hidden rounded-lg border border-border bg-muted',
       )}
     >
       <div className="absolute top-0 left-0 z-10 rounded-br-md bg-background/80 px-2 py-1 font-medium text-muted-foreground text-xs backdrop-blur-sm">

@@ -52,6 +52,13 @@ export function useCoreToolsStream() {
     >
   >(new Map())
 
+  const settlePendingCommands = useCallback((reason: string) => {
+    for (const [, pending] of pendingCommands.current) {
+      pending.reject(new Error(reason))
+    }
+    pendingCommands.current.clear()
+  }, [])
+
   // core-tools 状態ポーリング (マウント時 + 2s 間隔)。
   // 起動自体は Rust 側の setup hook で行われるため、ここでは状態反映のみ。
   useEffect(() => {
@@ -70,11 +77,13 @@ export function useCoreToolsStream() {
             type: 'error',
             message: '処理エンジンの起動に失敗しました',
           })
+          settlePendingCommands('core-tools failed')
         } else if (s === 'disconnected') {
           setStatus({
             type: 'error',
             message: '処理エンジンが切断されました',
           })
+          settlePendingCommands('core-tools disconnected')
         } else {
           // idle / starting / ready → 起動中表示
           setStatus({ type: 'loading', message: '処理エンジンを起動中...' })
@@ -93,7 +102,7 @@ export function useCoreToolsStream() {
       cancelled = true
       if (timer) clearInterval(timer)
     }
-  }, [])
+  }, [settlePendingCommands])
 
   // response / event 購読 (マウント時1回)
   useEffect(() => {
@@ -105,7 +114,11 @@ export function useCoreToolsStream() {
         const pending = pendingCommands.current.get(id)
         if (pending) {
           pendingCommands.current.delete(id)
-          pending.resolve(response)
+          if (response.ok === false) {
+            pending.reject(response)
+          } else {
+            pending.resolve(response)
+          }
         }
       }
     }).then((unsub) => unsubs.push(unsub))
@@ -169,7 +182,15 @@ export function useCoreToolsStream() {
           resolve: (r) => resolve(r as unknown as T),
           reject,
         })
+        const timer = setTimeout(() => {
+          const entry = pendingCommands.current.get(id)
+          if (entry) {
+            pendingCommands.current.delete(id)
+            reject(new Error(`Command "${cmd}" timed out after 10s`))
+          }
+        }, 10000)
         sendCoreToolsCommand(json).catch((e) => {
+          clearTimeout(timer)
           pendingCommands.current.delete(id)
           reject(e)
         })

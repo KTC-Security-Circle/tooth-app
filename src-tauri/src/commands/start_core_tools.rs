@@ -50,13 +50,25 @@ pub async fn start_core_tools_inner(
 
     *lock_status(&state.status) = CoreToolsStatus::Starting;
 
-    let (mut rx, child) = app
+    let sidecar_result = app
         .shell()
         .sidecar("tooth-backend")
-        .map_err(|e| AppError::CoreTools(format!("failed to resolve tooth-backend: {e}")))?
-        .args(SIDECAR_ARGS)
-        .spawn()
-        .map_err(|e| AppError::CoreTools(format!("failed to spawn tooth-backend: {e}")))?;
+        .map_err(|e| AppError::CoreTools(format!("failed to resolve tooth-backend: {e}")))
+        .and_then(|cmd| {
+            cmd.args(SIDECAR_ARGS)
+                .spawn()
+                .map_err(|e| AppError::CoreTools(format!("failed to spawn tooth-backend: {e}")))
+        });
+
+    let (mut rx, child) = match sidecar_result {
+        Ok(pair) => pair,
+        Err(e) => {
+            *lock_status(&state.status) = CoreToolsStatus::Failed;
+            *lock_child(&state.child) = None;
+            *lock_cmd_tx(&state.cmd_tx) = None;
+            return Err(e);
+        }
+    };
 
     *lock_child(&state.child) = Some(child);
 
