@@ -18,12 +18,15 @@ pub enum AppError {
     #[error("{0}")]
     CoreTools(String),
     #[error("{0}")]
+    Matching(String),
+    #[error("{0}")]
     Internal(String),
 }
 
 /// シリアライズ用の内部表現。`AppError` の各バリアントを `{ kind, message }` 形式に
 /// マッピングする。`rename_all = "camelCase"` によりバリアント名は
-/// `io` / `config` / `validation` / `camera` / `internal` になる。
+/// `io` / `config` / `validation` / `camera` / `coreTools` / `matching` /
+/// `internal` になる。
 #[derive(serde::Serialize)]
 #[serde(tag = "kind", content = "message")]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +36,7 @@ enum AppErrorKind {
     Validation(String),
     Camera(String),
     CoreTools(String),
+    Matching(String),
     Internal(String),
 }
 
@@ -53,6 +57,9 @@ impl serde::Serialize for AppError {
                 "処理エンジンの起動に失敗しました。しばらくしてからもう一度お試しください"
                     .to_string()
             }
+            Self::Matching(_) => {
+                "マッチング処理に失敗しました。しばらくしてからもう一度お試しください".to_string()
+            }
         };
         let kind = match self {
             Self::Io(_) => AppErrorKind::Io(message),
@@ -60,6 +67,7 @@ impl serde::Serialize for AppError {
             Self::Validation(_) => AppErrorKind::Validation(message),
             Self::Camera(_) => AppErrorKind::Camera(message),
             Self::CoreTools(_) => AppErrorKind::CoreTools(message),
+            Self::Matching(_) => AppErrorKind::Matching(message),
             Self::Internal(_) => AppErrorKind::Internal(message),
         };
         kind.serialize(serializer)

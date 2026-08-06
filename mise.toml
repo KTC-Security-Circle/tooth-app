@@ -38,9 +38,18 @@ description = "tools/core の tooth-backend をホストマシンでビルドし
 dir = "tools/core"
 run = "cmake --preset release-opencv-4.10-static && cmake --build --preset release-opencv-4.10-static --parallel && mkdir -p ../../src-tauri/binaries && cp build/release-opencv-4.10-static/src/serve/tooth-backend ../../src-tauri/binaries/tooth-backend-$(rustc --print host-tuple)"
 
+[tasks."build:3d-matching"]
+description = "tools/3d-matching の 3mcli をビルドし src-tauri/binaries/ に配置"
+dir = "tools/3d-matching"
+run = [
+  "uv sync --all-packages",
+  "cd app/cli && uv run task build",
+  "test -f app/cli/dist/3mcli && mkdir -p ../../src-tauri/binaries && cp -- app/cli/dist/3mcli ../../src-tauri/binaries/3mcli-$(rustc --print host-tuple)",
+]
+
 [tasks."build:all"]
 description = "サイドカー + デスクトップアプリをビルド"
-depends = ["build:core-tools"]
+depends = ["build:core-tools", "build:3d-matching"]
 run = "bun tauri build"
 
 [tasks.type]

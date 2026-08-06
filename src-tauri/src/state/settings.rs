@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 use crate::errors::AppError;
 use crate::utils::config::config_file_path;
@@ -12,6 +13,16 @@ pub struct Settings {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub calibration_image_path: String,
     pub developer_mode: bool,
+    #[serde(default)]
+    pub matching_source_path: String,
+    #[serde(default)]
+    pub matching_target_path: String,
+    #[serde(default = "default_matching_mode")]
+    pub matching_mode: String,
+    #[serde(default = "default_matching_voxel_size")]
+    pub matching_voxel_size: f64,
+    #[serde(default = "default_matching_ransac_iterations")]
+    pub matching_ransac_iterations: u64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -27,6 +38,16 @@ pub struct SettingsPatch {
     pub calibration_image_path: Option<String>,
     #[serde(default)]
     pub developer_mode: Option<bool>,
+    #[serde(default)]
+    pub matching_source_path: Option<String>,
+    #[serde(default)]
+    pub matching_target_path: Option<String>,
+    #[serde(default)]
+    pub matching_mode: Option<String>,
+    #[serde(default)]
+    pub matching_voxel_size: Option<f64>,
+    #[serde(default)]
+    pub matching_ransac_iterations: Option<u64>,
 }
 
 impl SettingsPatch {
@@ -46,6 +67,22 @@ impl SettingsPatch {
         if let Some(v) = self.developer_mode {
             settings.developer_mode = v;
         }
+        if let Some(v) = &self.matching_source_path {
+            settings.matching_source_path = v.clone();
+        }
+        if let Some(v) = &self.matching_target_path {
+            settings.matching_target_path = v.clone();
+        }
+        if let Some(v) = &self.matching_mode {
+            settings.matching_mode = v.clone();
+        }
+        if let Some(v) = self.matching_voxel_size {
+            settings.matching_voxel_size = v;
+        }
+        if let Some(v) = self.matching_ransac_iterations {
+            settings.matching_ransac_iterations = v;
+        }
+        settings.derive_matching_paths();
     }
 }
 
@@ -57,8 +94,25 @@ impl Default for Settings {
             fps: 30,
             calibration_image_path: String::new(),
             developer_mode: false,
+            matching_source_path: String::new(),
+            matching_target_path: String::new(),
+            matching_mode: default_matching_mode(),
+            matching_voxel_size: default_matching_voxel_size(),
+            matching_ransac_iterations: default_matching_ransac_iterations(),
         }
     }
+}
+
+fn default_matching_mode() -> String {
+    "matching".to_string()
+}
+
+const fn default_matching_voxel_size() -> f64 {
+    0.25
+}
+
+const fn default_matching_ransac_iterations() -> u64 {
+    30
 }
 
 impl Settings {
@@ -68,7 +122,10 @@ impl Settings {
 
         match std::fs::read_to_string(&path) {
             Ok(contents) => match serde_json::from_str::<Settings>(&contents) {
-                Ok(settings) => Ok(settings),
+                Ok(mut settings) => {
+                    settings.derive_matching_paths();
+                    Ok(settings)
+                }
                 Err(e) => {
                     log::warn!(
                         "failed to parse settings file '{}': {}. Using defaults.",
@@ -87,6 +144,36 @@ impl Settings {
                 log::error!("{}", msg);
                 Err(AppError::Io(msg))
             }
+        }
+    }
+
+    /// Fill in matching paths that were not explicitly configured.
+    fn derive_matching_paths(&mut self) {
+        if self.calibration_image_path.is_empty() {
+            return;
+        }
+
+        let calibration_dir = Path::new(&self.calibration_image_path);
+        let Some(parent) = calibration_dir.parent() else {
+            return;
+        };
+        if parent.as_os_str().is_empty() {
+            return;
+        }
+
+        if self.matching_source_path.is_empty() {
+            self.matching_source_path = parent
+                .join("3d_data")
+                .join("source.ply")
+                .to_string_lossy()
+                .into_owned();
+        }
+        if self.matching_target_path.is_empty() {
+            self.matching_target_path = parent
+                .join("3d_data")
+                .join("target.ply")
+                .to_string_lossy()
+                .into_owned();
         }
     }
 
@@ -123,8 +210,10 @@ impl Settings {
     /// 設定を JSON ファイルへ保存する。
     pub fn save(&self, app: &tauri::AppHandle) -> Result<(), AppError> {
         let path = config_file_path(app)?;
+        let mut settings = self.clone();
+        settings.derive_matching_paths();
 
-        let contents = serde_json::to_string_pretty(&self).map_err(|e| {
+        let contents = serde_json::to_string_pretty(&settings).map_err(|e| {
             let msg = format!("Failed to serialize settings: {}", e);
             log::error!("{}", msg);
             AppError::Config(msg)
@@ -137,5 +226,57 @@ impl Settings {
         })?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn derives_empty_matching_paths_from_calibration_directory_parent() {
+        let mut settings = Settings {
+            calibration_image_path: "/data/calibration/images".to_string(),
+            ..Settings::default()
+        };
+
+        settings.derive_matching_paths();
+
+        assert_eq!(
+            settings.matching_source_path,
+            "/data/calibration/3d_data/source.ply"
+        );
+        assert_eq!(
+            settings.matching_target_path,
+            "/data/calibration/3d_data/target.ply"
+        );
+    }
+
+    #[test]
+    fn preserves_nonempty_matching_paths() {
+        let mut settings = Settings {
+            calibration_image_path: "/data/new-calibration/images".to_string(),
+            matching_source_path: "/custom/source.ply".to_string(),
+            matching_target_path: "/custom/target.ply".to_string(),
+            ..Settings::default()
+        };
+
+        settings.derive_matching_paths();
+
+        assert_eq!(settings.matching_source_path, "/custom/source.ply");
+        assert_eq!(settings.matching_target_path, "/custom/target.ply");
+    }
+
+    #[test]
+    fn leaves_matching_paths_empty_when_calibration_has_no_parent() {
+        let mut settings = Settings {
+            calibration_image_path: "calibration".to_string(),
+            ..Settings::default()
+        };
+
+        settings.derive_matching_paths();
+
+        assert!(settings.matching_source_path.is_empty());
+        assert!(settings.matching_target_path.is_empty());
     }
 }
