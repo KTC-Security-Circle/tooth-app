@@ -111,6 +111,20 @@ export function useSettings({
   const browsePath = async () => {
     const selected = await open({ directory: true })
     if (selected !== null && typeof selected === 'string') {
+      const previousDefaultSourcePath = settings.calibrationImagePath
+        ? await join(
+            await dirname(settings.calibrationImagePath),
+            '3d_data',
+            'source.ply',
+          )
+        : null
+      const previousDefaultTargetPath = settings.calibrationImagePath
+        ? await join(
+            await dirname(settings.calibrationImagePath),
+            '3d_data',
+            'target.ply',
+          )
+        : null
       const parent = await dirname(selected)
       const defaultSourcePath = parent
         ? await join(parent, '3d_data', 'source.ply')
@@ -121,10 +135,18 @@ export function useSettings({
 
       setSettings((prev) => {
         const next: Settings = { ...prev, calibrationImagePath: selected }
-        if (!prev.matchingSourcePath && defaultSourcePath) {
+        if (
+          defaultSourcePath &&
+          (!prev.matchingSourcePath ||
+            prev.matchingSourcePath === previousDefaultSourcePath)
+        ) {
           next.matchingSourcePath = defaultSourcePath
         }
-        if (!prev.matchingTargetPath && defaultTargetPath) {
+        if (
+          defaultTargetPath &&
+          (!prev.matchingTargetPath ||
+            prev.matchingTargetPath === previousDefaultTargetPath)
+        ) {
           next.matchingTargetPath = defaultTargetPath
         }
         return next
