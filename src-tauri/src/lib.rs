@@ -60,6 +60,7 @@ pub fn run() {
             commands::core_tools_status::core_tools_status,
             commands::load_settings::load_settings,
             commands::recalibrate::recalibrate,
+            commands::run_matching::run_matching,
             commands::default_calibration_path::default_calibration_path,
             commands::settings_exists::settings_exists,
             commands::update_settings::update_settings,

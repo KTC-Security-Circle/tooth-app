@@ -64,6 +64,8 @@ function SettingsPage() {
     save,
     updateField,
     browsePath,
+    browseMatchingSourcePath,
+    browseMatchingTargetPath,
     enableDeveloperMode,
     disableDeveloperMode,
   } = useSettings({ settings: initialSettings, cameras, loadError })
@@ -167,6 +169,112 @@ function SettingsPage() {
                     参照...
                   </Button>
                 </FormField.Control>
+              </FormField>
+
+              <FormField labelWidth="200px">
+                <FormField.Label htmlFor="matching-source-path">
+                  マッチング元 PLY パス
+                </FormField.Label>
+                <FormField.Control className="flex gap-2">
+                  <TextInput
+                    id="matching-source-path"
+                    readOnly
+                    type="text"
+                    value={settings.matchingSourcePath ?? ''}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={browseMatchingSourcePath}
+                  >
+                    参照...
+                  </Button>
+                </FormField.Control>
+              </FormField>
+
+              <FormField labelWidth="200px">
+                <FormField.Label htmlFor="matching-target-path">
+                  マッチング先 PLY パス
+                </FormField.Label>
+                <FormField.Control className="flex gap-2">
+                  <TextInput
+                    id="matching-target-path"
+                    readOnly
+                    type="text"
+                    value={settings.matchingTargetPath ?? ''}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={browseMatchingTargetPath}
+                  >
+                    参照...
+                  </Button>
+                </FormField.Control>
+              </FormField>
+
+              <FormField labelWidth="200px">
+                <FormField.Label htmlFor="matching-mode">
+                  マッチングモード
+                </FormField.Label>
+                <FormField.Select
+                  className="sm:max-w-40"
+                  id="matching-mode"
+                  value={settings.matchingMode ?? 'matching'}
+                  onChange={(e) => {
+                    updateField('matchingMode', e.currentTarget.value)
+                  }}
+                >
+                  <FormField.Select.Option value="matching">
+                    マッチング
+                  </FormField.Select.Option>
+                  <FormField.Select.Option value="ransac">
+                    RANSAC
+                  </FormField.Select.Option>
+                  <FormField.Select.Option value="icp">
+                    ICP
+                  </FormField.Select.Option>
+                </FormField.Select>
+              </FormField>
+
+              <FormField labelWidth="200px">
+                <FormField.Label htmlFor="matching-voxel-size">
+                  ボクセルサイズ
+                </FormField.Label>
+                <TextInput
+                  className="sm:max-w-40"
+                  id="matching-voxel-size"
+                  min={0}
+                  step={0.01}
+                  type="number"
+                  value={settings.matchingVoxelSize ?? ''}
+                  onChange={(e) => {
+                    const value = Number.parseFloat(e.currentTarget.value)
+                    updateField(
+                      'matchingVoxelSize',
+                      Number.isNaN(value) ? 0 : value,
+                    )
+                  }}
+                />
+              </FormField>
+
+              <FormField labelWidth="200px">
+                <FormField.Label htmlFor="matching-ransac-iterations">
+                  RANSAC 反復回数
+                </FormField.Label>
+                <TextInput
+                  className="sm:max-w-40"
+                  id="matching-ransac-iterations"
+                  min={0}
+                  step={1}
+                  type="number"
+                  value={settings.matchingRansacIterations ?? ''}
+                  onChange={(e) => {
+                    const value = Number.parseInt(e.currentTarget.value, 10)
+                    updateField(
+                      'matchingRansacIterations',
+                      Number.isNaN(value) ? 0 : value,
+                    )
+                  }}
+                />
               </FormField>
 
               <div className="flex items-center gap-4">

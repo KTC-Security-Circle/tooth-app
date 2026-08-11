@@ -15,7 +15,8 @@
             "**/package.json",
             "**/tsconfig*.json",
             "**/src/**/*",
-            "!**/routeTree.gen.ts"
+            "!**/routeTree.gen.ts",
+            "!**/tools/**/*"
         ]
     },
     "formatter": {

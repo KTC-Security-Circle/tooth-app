@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { dirname, join } from '@tauri-apps/api/path'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
@@ -10,6 +11,11 @@ export type Settings = {
   fps: number
   developerMode: boolean
   calibrationImagePath?: string
+  matchingSourcePath?: string
+  matchingTargetPath?: string
+  matchingMode?: string
+  matchingVoxelSize?: number
+  matchingRansacIterations?: number
 }
 
 export type SettingsPatch = Partial<Settings>
@@ -24,6 +30,11 @@ export const defaultSettings: Settings = {
   cameraRight: '',
   fps: 30,
   developerMode: false,
+  matchingSourcePath: '',
+  matchingTargetPath: '',
+  matchingMode: 'matching',
+  matchingVoxelSize: 0.25,
+  matchingRansacIterations: 30,
 }
 
 interface UseSettingsArgs {
@@ -63,6 +74,21 @@ export function useSettings({
       if (settings.calibrationImagePath !== undefined) {
         patch.calibrationImagePath = settings.calibrationImagePath
       }
+      if (settings.matchingSourcePath !== undefined) {
+        patch.matchingSourcePath = settings.matchingSourcePath
+      }
+      if (settings.matchingTargetPath !== undefined) {
+        patch.matchingTargetPath = settings.matchingTargetPath
+      }
+      if (settings.matchingMode !== undefined) {
+        patch.matchingMode = settings.matchingMode
+      }
+      if (settings.matchingVoxelSize !== undefined) {
+        patch.matchingVoxelSize = settings.matchingVoxelSize
+      }
+      if (settings.matchingRansacIterations !== undefined) {
+        patch.matchingRansacIterations = settings.matchingRansacIterations
+      }
       await invoke<void>('update_settings', { patch })
       setStatus({ type: 'success', message: '設定を保存しました' })
       return true
@@ -84,8 +110,67 @@ export function useSettings({
 
   const browsePath = async () => {
     const selected = await open({ directory: true })
-    if (selected !== null) {
-      setSettings((prev) => ({ ...prev, calibrationImagePath: selected }))
+    if (selected !== null && typeof selected === 'string') {
+      const previousDefaultSourcePath = settings.calibrationImagePath
+        ? await join(
+            await dirname(settings.calibrationImagePath),
+            '3d_data',
+            'source.ply',
+          )
+        : null
+      const previousDefaultTargetPath = settings.calibrationImagePath
+        ? await join(
+            await dirname(settings.calibrationImagePath),
+            '3d_data',
+            'target.ply',
+          )
+        : null
+      const parent = await dirname(selected)
+      const defaultSourcePath = parent
+        ? await join(parent, '3d_data', 'source.ply')
+        : null
+      const defaultTargetPath = parent
+        ? await join(parent, '3d_data', 'target.ply')
+        : null
+
+      setSettings((prev) => {
+        const next: Settings = { ...prev, calibrationImagePath: selected }
+        if (
+          defaultSourcePath &&
+          (!prev.matchingSourcePath ||
+            prev.matchingSourcePath === previousDefaultSourcePath)
+        ) {
+          next.matchingSourcePath = defaultSourcePath
+        }
+        if (
+          defaultTargetPath &&
+          (!prev.matchingTargetPath ||
+            prev.matchingTargetPath === previousDefaultTargetPath)
+        ) {
+          next.matchingTargetPath = defaultTargetPath
+        }
+        return next
+      })
+    }
+  }
+
+  const browseMatchingSourcePath = async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: 'PLY', extensions: ['ply'] }],
+    })
+    if (selected !== null && typeof selected === 'string') {
+      setSettings((prev) => ({ ...prev, matchingSourcePath: selected }))
+    }
+  }
+
+  const browseMatchingTargetPath = async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: 'PLY', extensions: ['ply'] }],
+    })
+    if (selected !== null && typeof selected === 'string') {
+      setSettings((prev) => ({ ...prev, matchingTargetPath: selected }))
     }
   }
 
@@ -119,6 +204,11 @@ export function useSettings({
         ...prev,
         developerMode: false,
         calibrationImagePath: undefined,
+        matchingSourcePath: undefined,
+        matchingTargetPath: undefined,
+        matchingMode: undefined,
+        matchingVoxelSize: undefined,
+        matchingRansacIterations: undefined,
       }))
       setStatus({
         type: 'success',
@@ -139,6 +229,8 @@ export function useSettings({
     save,
     updateField,
     browsePath,
+    browseMatchingSourcePath,
+    browseMatchingTargetPath,
     enableDeveloperMode,
     disableDeveloperMode,
   }
