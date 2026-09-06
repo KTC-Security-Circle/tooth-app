@@ -55,6 +55,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::move_turntable::move_turntable,
             commands::greet::greet,
             commands::camera::list_cameras,
             commands::core_tools_status::core_tools_status,

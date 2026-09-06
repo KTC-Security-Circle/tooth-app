@@ -23,6 +23,15 @@
             "--mjpeg-port",
             "39010"
           ]
+        },
+        {
+          "name": "binaries/turntable",
+          "sidecar": true,
+          "args": [
+            {
+              "validator": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"
+            }
+          ]
         }
       ]
     }
