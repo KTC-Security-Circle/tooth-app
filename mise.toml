@@ -47,9 +47,17 @@ run = [
   "test -f app/cli/dist/3mcli && mkdir -p ../../src-tauri/binaries && cp -- app/cli/dist/3mcli ../../src-tauri/binaries/3mcli-$(rustc --print host-tuple)",
 ]
 
+[tasks."build:turntable"]
+description = "tools/tooth-table-tools の turntable サイドカーをビルドし src-tauri/binaries/ に配置"
+dir = "tools/tooth-table-tools"
+run = [
+  "uv run task compile",
+  "test -f dist/turntable && mkdir -p ../../src-tauri/binaries && cp -- dist/turntable ../../src-tauri/binaries/turntable-$(rustc --print host-tuple)",
+]
+
 [tasks."build:all"]
 description = "サイドカー + デスクトップアプリをビルド"
-depends = ["build:core-tools", "build:3d-matching"]
+depends = ["build:core-tools", "build:3d-matching", "build:turntable"]
 run = "bun tauri build"
 
 [tasks.type]

@@ -5,3 +5,6 @@
 	path = tools/3d-matching
 	url = git@github.com:KTC-Security-Circle/3d-matching.git
 	branch = develop
+[submodule "tools/tooth-table-tools"]
+	path = tools/tooth-table-tools
+	url = git@github.com:KTC-Security-Circle/tooth-table-tools.git

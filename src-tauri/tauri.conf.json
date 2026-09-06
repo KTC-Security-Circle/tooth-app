@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.ktc-sc.tooth-app",
   "build": {
-    "beforeDevCommand": "mise run build:core-tools && bun run dev",
+    "beforeDevCommand": "mise run build:core-tools && mise run build:turntable && bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "mise run build:core-tools && bun run build",
+    "beforeBuildCommand": "mise run build:core-tools && mise run build:turntable && bun run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -24,7 +24,7 @@
   "bundle": {
     "active": true,
     "targets": ["deb", "appimage", "rpm"],
-    "externalBin": ["binaries/tooth-backend", "binaries/3mcli"],
+    "externalBin": ["binaries/tooth-backend", "binaries/3mcli", "binaries/turntable"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
