@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.ktc-sc.tooth-app",
   "build": {
-    "beforeDevCommand": "mise run build:core-tools && mise run build:turntable && bun run dev",
+    "beforeDevCommand": "mise run build:core-tools && mise run build:3d-matching && mise run build:turntable && bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "mise run build:core-tools && mise run build:turntable && bun run build",
+    "beforeBuildCommand": "mise run build:core-tools && mise run build:3d-matching && mise run build:turntable && bun run build",
     "frontendDist": "../dist"
   },
   "app": {
