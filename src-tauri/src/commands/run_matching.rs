@@ -12,6 +12,7 @@ use crate::state::matching::{MatchingResponse, MatchingState};
 use crate::state::settings::Settings;
 
 const MATCHING_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -171,11 +172,25 @@ async fn start_matching_server_inner(
 
 pub fn stop_matching_server(state: &MatchingState) {
     state.generation.fetch_add(1, Ordering::AcqRel);
-    if let Ok(mut guard) = state.child.lock() {
-        if let Some(child) = guard.as_mut() {
-            // Exit handling is synchronous. Write directly to stdin so the
-            // shutdown request is not stranded in the async writer queue.
-            let _ = child.write(b"{\"command\":\"shutdown\"}\n");
+    let child = match state.child.lock() {
+        Ok(mut guard) => guard.take(),
+        Err(poisoned) => poisoned.into_inner().take(),
+    };
+    if let Some(mut child) = child {
+        // Exit handling is synchronous. Write directly to stdin so the
+        // shutdown request is not stranded in the async writer queue.
+        if child.write(b"{\"command\":\"shutdown\"}\n").is_err() {
+            log::warn!("3mserve shutdown request failed; killing sidecar");
+            let _ = child.kill();
+        } else {
+            // Give a healthy server a short opportunity to shut down cleanly,
+            // then kill it so a server that ignores shutdown cannot be orphaned.
+            std::thread::sleep(SHUTDOWN_GRACE_PERIOD);
+            if child.kill().is_ok() {
+                log::warn!(
+                    "3mserve did not shut down within {SHUTDOWN_GRACE_PERIOD:?}; killed sidecar"
+                );
+            }
         }
     }
     if let Ok(mut guard) = state.cmd_tx.lock() {
