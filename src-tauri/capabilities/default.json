@@ -25,6 +25,11 @@
           ]
         },
         {
+          "name": "binaries/3mserve",
+          "sidecar": true,
+          "args": []
+        },
+        {
           "name": "binaries/turntable",
           "sidecar": true,
           "args": [

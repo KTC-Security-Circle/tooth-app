@@ -40,6 +40,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(state::core_tools::CoreToolsState::default())
+        .manage(state::matching::MatchingState::default())
         .setup(|app| {
             // アプリ起動時に core-tools (tooth-backend) を自動起動 (非同期・非ブロッキング)。
             // React 側の effect ライフサイクルに依存せず、アプリ全体で単一プロセスを管理する。
@@ -50,6 +51,14 @@ pub fn run() {
                 {
                     Ok(()) => log::info!("core-tools: auto-started on app setup"),
                     Err(e) => log::error!("core-tools: auto-start failed: {e}"),
+                }
+            });
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app_handle.state::<state::matching::MatchingState>();
+                match commands::run_matching::start_matching_server(&app_handle, &state).await {
+                    Ok(()) => log::info!("3mserve: auto-started on app setup"),
+                    Err(e) => log::error!("3mserve: auto-start failed: {e}"),
                 }
             });
             Ok(())
@@ -85,6 +94,10 @@ pub fn run() {
                     let _ = child.kill();
                     log::info!("core-tools: killed tooth-backend on app exit");
                 }
+            }
+            if let Some(matching) = app_handle.try_state::<state::matching::MatchingState>() {
+                commands::run_matching::stop_matching_server(&matching);
+                log::info!("3mserve: sent shutdown to sidecar on app exit");
             }
         }
     });
