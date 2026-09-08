@@ -224,7 +224,6 @@ pub async fn run_matching(
     app: AppHandle,
     state: tauri::State<'_, MatchingState>,
 ) -> Result<MatchingResult, AppError> {
-    let _request_guard = state.request_lock.lock().await;
     let settings = Settings::load(&app)?;
     let source_path = validate_ply_path("source_path", &settings.matching_source_path)?;
     let target_path = validate_ply_path("target_path", &settings.matching_target_path)?;
@@ -251,7 +250,49 @@ pub async fn run_matching(
         ));
     }
 
-    start_matching_server_inner(&app, &state).await?;
+    run_matching_paths(
+        &app,
+        &state,
+        std::path::Path::new(&source_path),
+        std::path::Path::new(&target_path),
+        &settings,
+    )
+    .await
+}
+
+pub(crate) async fn run_matching_paths(
+    app: &AppHandle,
+    state: &MatchingState,
+    source_path: &std::path::Path,
+    target_path: &std::path::Path,
+    settings: &Settings,
+) -> Result<MatchingResult, AppError> {
+    let _request_guard = state.request_lock.lock().await;
+    let source_path = validate_ply_path("source_path", &source_path.to_string_lossy())?;
+    let target_path = validate_ply_path("target_path", &target_path.to_string_lossy())?;
+    let mode = match settings.matching_mode.as_str() {
+        "matching" => MatchingMode::Matching,
+        _ => {
+            return Err(AppError::Validation(
+                "matching_mode must be one of ransac, icp, or matching".to_string(),
+            ))
+        }
+    };
+    if !settings.matching_voxel_size.is_finite()
+        || settings.matching_voxel_size <= 0.0
+        || settings.matching_ransac_iterations < 1
+        || settings
+            .minimum_fitness
+            .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
+        || settings
+            .maximum_rmse
+            .is_some_and(|value| !value.is_finite() || value < 0.0)
+    {
+        return Err(AppError::Validation(
+            "matching quality settings are invalid".to_string(),
+        ));
+    }
+    start_matching_server_inner(app, state).await?;
     let request = serde_json::json!({
         "command": "matching",
         "mode": "matching",
@@ -276,26 +317,26 @@ pub async fn run_matching(
         .await
         .is_err()
     {
-        reset_matching_server(&state);
+        reset_matching_server(state);
         return Err(AppError::Matching(
             "failed to send matching request to 3mserve".to_string(),
         ));
     }
 
-    let response = match tokio::time::timeout(MATCHING_TIMEOUT, receive_response(&state)).await {
+    let response = match tokio::time::timeout(MATCHING_TIMEOUT, receive_response(state)).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
-            reset_matching_server(&state);
+            reset_matching_server(state);
             return Err(error);
         }
         Err(_) => {
             log::error!("matching timed out after {MATCHING_TIMEOUT:?}");
-            reset_matching_server(&state);
+            reset_matching_server(state);
             return Err(AppError::Matching("3mserve timed out".to_string()));
         }
     };
     if let Some(error) = response.get("error") {
-        reset_matching_server(&state);
+        reset_matching_server(state);
         return Err(AppError::Matching(format!(
             "3mserve matching error: {error}"
         )));
