@@ -41,6 +41,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(state::core_tools::CoreToolsState::default())
         .manage(state::matching::MatchingState::default())
+        .manage(state::turntable::TurntableState::default())
         .setup(|app| {
             // アプリ起動時に core-tools (tooth-backend) を自動起動 (非同期・非ブロッキング)。
             // React 側の effect ライフサイクルに依存せず、アプリ全体で単一プロセスを管理する。
@@ -65,6 +66,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::move_turntable::move_turntable,
+            commands::move_turntable::move_turntable_slot,
+            commands::move_turntable::zero_turntable,
+            commands::move_turntable::stop_turntable,
             commands::greet::greet,
             commands::camera::list_cameras,
             commands::core_tools_status::core_tools_status,
