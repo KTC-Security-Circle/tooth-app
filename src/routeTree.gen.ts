@@ -9,15 +9,22 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SetupRouteRouteImport } from './routes/setup/route'
-import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SetupIndexRouteImport } from './routes/setup/index'
+import { Route as ScanRouteRouteImport } from './routes/scan/route'
+import { Route as SettingsRouteRouteImport } from './routes/settings/route'
+import { Route as SetupRouteRouteImport } from './routes/setup/route'
+import { Route as ScanIndexRouteImport } from './routes/scan/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as SetupIndexRouteImport } from './routes/setup/index'
 
-const SetupRouteRoute = SetupRouteRouteImport.update({
-  id: '/setup',
-  path: '/setup',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScanRouteRoute = ScanRouteRouteImport.update({
+  id: '/scan',
+  path: '/scan',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRouteRoute = SettingsRouteRouteImport.update({
@@ -25,63 +32,90 @@ const SettingsRouteRoute = SettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const SetupRouteRoute = SetupRouteRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SetupIndexRoute = SetupIndexRouteImport.update({
+const ScanIndexRoute = ScanIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => SetupRouteRoute,
+  getParentRoute: () => ScanRouteRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SetupIndexRoute = SetupIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SetupRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/scan': typeof ScanRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/setup': typeof SetupRouteRouteWithChildren
+  '/scan/': typeof ScanIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/setup/': typeof SetupIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/scan': typeof ScanIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/setup': typeof SetupIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/scan': typeof ScanRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/setup': typeof SetupRouteRouteWithChildren
+  '/scan/': typeof ScanIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/setup/': typeof SetupIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/settings' | '/setup' | '/settings/' | '/setup/'
+  fullPaths:
+    '/' | '/scan' | '/settings' | '/setup' | '/scan/' | '/settings/' | '/setup/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/setup'
-  id: '__root__' | '/' | '/settings' | '/setup' | '/settings/' | '/setup/'
+  to: '/' | '/scan' | '/settings' | '/setup'
+  id:
+    | '__root__'
+    | '/'
+    | '/scan'
+    | '/settings'
+    | '/setup'
+    | '/scan/'
+    | '/settings/'
+    | '/setup/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ScanRouteRoute: typeof ScanRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   SetupRouteRoute: typeof SetupRouteRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/setup': {
-      id: '/setup'
-      path: '/setup'
-      fullPath: '/setup'
-      preLoaderRoute: typeof SetupRouteRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scan': {
+      id: '/scan'
+      path: '/scan'
+      fullPath: '/scan'
+      preLoaderRoute: typeof ScanRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -91,19 +125,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/setup/': {
-      id: '/setup/'
+    '/scan/': {
+      id: '/scan/'
       path: '/'
-      fullPath: '/setup/'
-      preLoaderRoute: typeof SetupIndexRouteImport
-      parentRoute: typeof SetupRouteRoute
+      fullPath: '/scan/'
+      preLoaderRoute: typeof ScanIndexRouteImport
+      parentRoute: typeof ScanRouteRoute
     }
     '/settings/': {
       id: '/settings/'
@@ -112,8 +146,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/setup/': {
+      id: '/setup/'
+      path: '/'
+      fullPath: '/setup/'
+      preLoaderRoute: typeof SetupIndexRouteImport
+      parentRoute: typeof SetupRouteRoute
+    }
   }
 }
+
+interface ScanRouteRouteChildren {
+  ScanIndexRoute: typeof ScanIndexRoute
+}
+
+const ScanRouteRouteChildren: ScanRouteRouteChildren = {
+  ScanIndexRoute: ScanIndexRoute,
+}
+
+const ScanRouteRouteWithChildren = ScanRouteRoute._addFileChildren(
+  ScanRouteRouteChildren,
+)
 
 interface SettingsRouteRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -141,6 +194,7 @@ const SetupRouteRouteWithChildren = SetupRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ScanRouteRoute: ScanRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   SetupRouteRoute: SetupRouteRouteWithChildren,
 }
