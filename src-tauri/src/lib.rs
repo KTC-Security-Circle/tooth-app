@@ -42,6 +42,7 @@ pub fn run() {
         .manage(state::core_tools::CoreToolsState::default())
         .manage(state::matching::MatchingState::default())
         .manage(state::turntable::TurntableState::default())
+        .manage(state::scan_session::ScanSessionState::default())
         .setup(|app| {
             // アプリ起動時に core-tools (tooth-backend) を自動起動 (非同期・非ブロッキング)。
             // React 側の effect ライフサイクルに依存せず、アプリ全体で単一プロセスを管理する。
@@ -83,6 +84,10 @@ pub fn run() {
             commands::stop_core_tools::stop_core_tools,
             commands::preflight_scan::preflight_scan,
             commands::process_scan_slot::process_scan_slot,
+            commands::scan_session::start_scan_session,
+            commands::scan_session::resume_scan_session,
+            commands::scan_session::retry_scan_session,
+            commands::scan_session::get_scan_session,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -45,7 +45,7 @@ pub async fn process_scan_slot(
     .await
 }
 
-async fn process_scan_slot_inner(
+pub(crate) async fn process_scan_slot_inner(
     app: &AppHandle,
     core_tools: &CoreToolsState,
     matching: &crate::state::matching::MatchingState,
