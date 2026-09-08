@@ -8,7 +8,7 @@ use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 mod commands;
 mod errors;
-mod state;
+pub mod state;
 mod utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

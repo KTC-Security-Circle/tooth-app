@@ -5,7 +5,7 @@ use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
 use crate::errors::AppError;
-use crate::state::core_tools::{CoreToolsState, CoreToolsStatus};
+use crate::state::core_tools::{resolve_pending_response, CoreToolsState, CoreToolsStatus};
 
 /// tooth-backend (core-tools) の起動引数。
 const SIDECAR_ARGS: &[&str] = &[
@@ -101,34 +101,34 @@ pub async fn start_core_tools_inner(
     let app_for_reader = app.clone();
     let status_for_reader = state.status.clone();
     let terminated_for_reader = state.terminated.clone();
+    let pending_requests_for_reader = state.pending_requests.clone();
     async_runtime::spawn(async move {
         let mut ready_signalled = false;
+        let mut stdout = JsonLines::default();
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes);
-                    let line = line.trim();
-                    if line.is_empty() {
-                        continue;
-                    }
-                    match serde_json::from_str::<serde_json::Value>(line) {
-                        Ok(v) => {
-                            if v.get("event").is_some() {
-                                if !ready_signalled
-                                    && v.get("event").and_then(serde_json::Value::as_str)
-                                        == Some("ready")
-                                {
-                                    ready_signalled = true;
-                                    *lock_status(&status_for_reader) = CoreToolsStatus::Ready;
-                                    let _ = outcome_tx.send(Ok(())).await;
+                    for line in stdout.push(&bytes) {
+                        match serde_json::from_slice::<serde_json::Value>(&line) {
+                            Ok(v) => {
+                                resolve_pending_response(&pending_requests_for_reader, &v);
+                                if v.get("event").is_some() {
+                                    if !ready_signalled
+                                        && v.get("event").and_then(serde_json::Value::as_str)
+                                            == Some("ready")
+                                    {
+                                        ready_signalled = true;
+                                        *lock_status(&status_for_reader) = CoreToolsStatus::Ready;
+                                        let _ = outcome_tx.send(Ok(())).await;
+                                    }
+                                    let _ = app_for_reader.emit("core-tools:event", &v);
+                                } else {
+                                    let _ = app_for_reader.emit("core-tools:response", &v);
                                 }
-                                let _ = app_for_reader.emit("core-tools:event", &v);
-                            } else {
-                                let _ = app_for_reader.emit("core-tools:response", &v);
                             }
-                        }
-                        Err(e) => {
-                            log::warn!("core-tools: non-JSON stdout line: {line} ({e})");
+                            Err(e) => {
+                                log::warn!("core-tools: non-JSON stdout line ({e})");
+                            }
                         }
                     }
                 }
@@ -224,6 +224,53 @@ pub async fn start_core_tools_inner(
                 "tooth-backend did not become ready within 10s".to_string(),
             ))
         }
+    }
+}
+
+#[derive(Default)]
+struct JsonLines {
+    buffer: Vec<u8>,
+}
+
+impl JsonLines {
+    fn push(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        self.buffer.extend_from_slice(bytes);
+        let mut lines = Vec::new();
+        while let Some(position) = self.buffer.iter().position(|byte| *byte == b'\n') {
+            let mut line = self.buffer.drain(..=position).collect::<Vec<_>>();
+            line.pop();
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            if !line.iter().all(u8::is_ascii_whitespace) {
+                lines.push(line);
+            }
+        }
+        lines
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JsonLines;
+
+    #[test]
+    fn handles_fragmented_and_coalesced_json_lines() {
+        let mut lines = JsonLines::default();
+        assert!(lines.push(br#"{"id":"a"}"#).is_empty());
+        assert_eq!(
+            lines.push(b"\n{\"id\":\"b\"}\n"),
+            vec![br#"{"id":"a"}"#.to_vec(), br#"{"id":"b"}"#.to_vec()]
+        );
+    }
+
+    #[test]
+    fn handles_crlf_and_discards_blank_lines() {
+        let mut lines = JsonLines::default();
+        assert_eq!(
+            lines.push(b"\r\n {\"ok\":true} \r\n"),
+            vec![b" {\"ok\":true} ".to_vec()]
+        );
     }
 }
 
