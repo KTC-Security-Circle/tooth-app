@@ -77,6 +77,7 @@ pub fn run() {
             commands::start_core_tools::start_core_tools,
             commands::send_core_tools_command::send_core_tools_command,
             commands::stop_core_tools::stop_core_tools,
+            commands::preflight_scan::preflight_scan,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
