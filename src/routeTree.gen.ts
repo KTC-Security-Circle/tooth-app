@@ -9,12 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TurntableRouteImport } from './routes/turntable'
 import { Route as SetupRouteRouteImport } from './routes/setup/route'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 
+const TurntableRoute = TurntableRouteImport.update({
+  id: '/turntable',
+  path: '/turntable',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SetupRouteRoute = SetupRouteRouteImport.update({
   id: '/setup',
   path: '/setup',
@@ -45,11 +51,13 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteRouteWithChildren
   '/setup': typeof SetupRouteRouteWithChildren
+  '/turntable': typeof TurntableRoute
   '/settings/': typeof SettingsIndexRoute
   '/setup/': typeof SetupIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/turntable': typeof TurntableRoute
   '/settings': typeof SettingsIndexRoute
   '/setup': typeof SetupIndexRoute
 }
@@ -58,25 +66,42 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteRouteWithChildren
   '/setup': typeof SetupRouteRouteWithChildren
+  '/turntable': typeof TurntableRoute
   '/settings/': typeof SettingsIndexRoute
   '/setup/': typeof SetupIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/settings' | '/setup' | '/settings/' | '/setup/'
+  fullPaths:
+    '/' | '/settings' | '/setup' | '/turntable' | '/settings/' | '/setup/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/setup'
-  id: '__root__' | '/' | '/settings' | '/setup' | '/settings/' | '/setup/'
+  to: '/' | '/turntable' | '/settings' | '/setup'
+  id:
+    | '__root__'
+    | '/'
+    | '/settings'
+    | '/setup'
+    | '/turntable'
+    | '/settings/'
+    | '/setup/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   SetupRouteRoute: typeof SetupRouteRouteWithChildren
+  TurntableRoute: typeof TurntableRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/turntable': {
+      id: '/turntable'
+      path: '/turntable'
+      fullPath: '/turntable'
+      preLoaderRoute: typeof TurntableRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/setup': {
       id: '/setup'
       path: '/setup'
@@ -143,6 +168,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   SetupRouteRoute: SetupRouteRouteWithChildren,
+  TurntableRoute: TurntableRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

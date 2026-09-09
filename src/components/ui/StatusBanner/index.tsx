@@ -17,6 +17,8 @@ const StatusBanner: React.FC<Props> = ({ status }) => {
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       className={cn(
         'mb-6 rounded-lg border px-4 py-3 text-sm',
         status.type === 'error' &&

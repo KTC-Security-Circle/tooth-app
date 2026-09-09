@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import PageHeader from '@/components/app/PageHeader'
 import SectionPanel from '@/components/app/SectionPanel'
 import StreamPreview from '@/components/app/StreamPreview'
@@ -30,6 +30,15 @@ function Index() {
           stopStreams={stopStreams}
           isLoading={status.type === 'loading'}
         />
+      </SectionPanel>
+
+      <SectionPanel className="mt-6" heading="診断ツール">
+        <Link
+          to="/turntable"
+          className="inline-flex items-center gap-1 font-medium text-primary text-sm transition-colors hover:underline"
+        >
+          ターンテーブル診断 →
+        </Link>
       </SectionPanel>
     </div>
   )
