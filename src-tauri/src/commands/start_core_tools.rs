@@ -5,7 +5,9 @@ use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
 use crate::errors::AppError;
-use crate::state::core_tools::{resolve_pending_response, CoreToolsState, CoreToolsStatus};
+use crate::state::core_tools::{
+    drain_pending_requests, resolve_pending_response, CoreToolsState, CoreToolsStatus,
+};
 
 /// tooth-backend (core-tools) の起動引数。
 const SIDECAR_ARGS: &[&str] = &[
@@ -140,6 +142,7 @@ pub async fn start_core_tools_inner(
                 }
                 CommandEvent::Error(msg) => {
                     log::error!("core-tools command error: {msg}");
+                    drain_pending_requests(&pending_requests_for_reader);
                     if !ready_signalled {
                         ready_signalled = true;
                         *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
@@ -154,6 +157,7 @@ pub async fn start_core_tools_inner(
                         payload.code,
                         payload.signal
                     );
+                    drain_pending_requests(&pending_requests_for_reader);
                     terminated_for_reader.notify_one();
                     // ガードを await の前に確実に落とす (Send 要求)
                     let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
@@ -180,6 +184,7 @@ pub async fn start_core_tools_inner(
                 }
             }
         }
+        drain_pending_requests(&pending_requests_for_reader);
         // rx クローズ = プロセス終了
         let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
         if was_idle {

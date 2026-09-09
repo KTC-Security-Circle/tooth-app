@@ -97,14 +97,24 @@ impl CoreToolsState {
             self.remove_pending_request(&id);
             return Err(AppError::CoreTools("core-tools is not running".to_string()));
         };
-        if let Err(error) = sender.send(payload).await {
-            self.remove_pending_request(&id);
-            return Err(AppError::CoreTools(format!(
-                "core-tools command channel closed: {error}"
-            )));
+        let deadline = tokio::time::Instant::now() + timeout;
+        match tokio::time::timeout_at(deadline, sender.send(payload)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                self.remove_pending_request(&id);
+                return Err(AppError::CoreTools(format!(
+                    "core-tools command channel closed: {error}"
+                )));
+            }
+            Err(_) => {
+                self.remove_pending_request(&id);
+                return Err(AppError::CoreTools(format!(
+                    "core-tools request timed out after {timeout:?}"
+                )));
+            }
         }
 
-        match tokio::time::timeout(timeout, receiver).await {
+        match tokio::time::timeout_at(deadline, receiver).await {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(_)) => {
                 self.remove_pending_request(&id);
@@ -141,6 +151,15 @@ pub(crate) fn resolve_pending_response(
         .expect("core-tools pending requests mutex poisoned")
         .remove(&id)
         .is_some_and(|sender| sender.send(response.clone()).is_ok())
+}
+
+pub(crate) fn drain_pending_requests(
+    pending_requests: &Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+) {
+    pending_requests
+        .lock()
+        .expect("core-tools pending requests mutex poisoned")
+        .clear();
 }
 
 impl Default for CoreToolsState {
@@ -247,5 +266,47 @@ mod tests {
                 .expect("pending requests")
                 .is_empty());
         });
+    }
+
+    #[test]
+    fn removes_pending_request_when_enqueue_times_out() {
+        tauri::async_runtime::block_on(async {
+            let state = CoreToolsState::default();
+            let (sender, mut receiver) = tauri::async_runtime::channel(1);
+            sender
+                .send("already queued".to_string())
+                .await
+                .expect("queue");
+            *state.cmd_tx.lock().expect("cmd_tx") = Some(sender);
+
+            let result = state
+                .request(
+                    serde_json::json!({"cmd": "camera"}),
+                    Duration::from_millis(1),
+                )
+                .await;
+            assert!(result.is_err());
+            assert!(state
+                .pending_requests
+                .lock()
+                .expect("pending requests")
+                .is_empty());
+            assert_eq!(receiver.recv().await.as_deref(), Some("already queued"));
+        });
+    }
+
+    #[test]
+    fn drains_pending_requests() {
+        let state = CoreToolsState::default();
+        let (_, first) = state.register_request();
+        let (_, second) = state.register_request();
+        drain_pending_requests(&state.pending_requests);
+        assert!(first.blocking_recv().is_err());
+        assert!(second.blocking_recv().is_err());
+        assert!(state
+            .pending_requests
+            .lock()
+            .expect("pending requests")
+            .is_empty());
     }
 }
