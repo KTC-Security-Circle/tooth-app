@@ -15,6 +15,11 @@ export type Settings = {
   matchingTargetPath?: string
   matchingVoxelSize?: number
   matchingRansacIterations?: number
+  turntablePort: string
+  turntableSpeed: number
+  turntableAcceleration: number
+  turntableSettleTimeMs: number
+  turntableMoveTimeoutMs: number
 }
 
 export type SettingsPatch = Partial<Settings>
@@ -33,6 +38,11 @@ export const defaultSettings: Settings = {
   matchingTargetPath: '',
   matchingVoxelSize: 0.25,
   matchingRansacIterations: 30,
+  turntablePort: '',
+  turntableSpeed: 0,
+  turntableAcceleration: 0,
+  turntableSettleTimeMs: 0,
+  turntableMoveTimeoutMs: 0,
 }
 
 interface UseSettingsArgs {
@@ -68,6 +78,11 @@ export function useSettings({
         cameraLeft: settings.cameraLeft,
         cameraRight: settings.cameraRight,
         fps: settings.fps,
+        turntablePort: settings.turntablePort,
+        turntableSpeed: settings.turntableSpeed,
+        turntableAcceleration: settings.turntableAcceleration,
+        turntableSettleTimeMs: settings.turntableSettleTimeMs,
+        turntableMoveTimeoutMs: settings.turntableMoveTimeoutMs,
       }
       if (settings.calibrationImagePath !== undefined) {
         patch.calibrationImagePath = settings.calibrationImagePath
