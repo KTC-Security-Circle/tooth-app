@@ -4,6 +4,7 @@ pub mod default_calibration_path;
 pub mod greet;
 pub mod load_settings;
 pub mod move_turntable;
+pub mod preflight_scan;
 pub mod recalibrate;
 pub mod run_matching;
 pub mod send_core_tools_command;
