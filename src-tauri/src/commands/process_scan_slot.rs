@@ -311,8 +311,8 @@ fn valid_ply(path: &Path) -> bool {
         if read == 0 {
             return false;
         }
-        let line = line.strip_suffix(&[b'\r']).unwrap_or(&line);
-        let line = line.strip_suffix(&[b'\n']).unwrap_or(line);
+        let line = line.strip_suffix(b"\r").unwrap_or(&line);
+        let line = line.strip_suffix(b"\n").unwrap_or(line);
         if first_line {
             if line != b"ply" {
                 return false;
