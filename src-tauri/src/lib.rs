@@ -66,9 +66,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::move_turntable::move_turntable,
-            commands::move_turntable::move_turntable_slot,
-            commands::move_turntable::zero_turntable,
-            commands::move_turntable::stop_turntable,
+            commands::move_turntable_slot::move_turntable_slot,
+            commands::zero_turntable::zero_turntable,
+            commands::stop_turntable::stop_turntable,
             commands::greet::greet,
             commands::camera::list_cameras,
             commands::core_tools_status::core_tools_status,
@@ -103,6 +103,16 @@ pub fn run() {
             if let Some(matching) = app_handle.try_state::<state::matching::MatchingState>() {
                 commands::run_matching::stop_matching_server(&matching);
                 log::info!("3mserve: sent shutdown to sidecar on app exit");
+            }
+            if let Some(turntable) = app_handle.try_state::<state::turntable::TurntableState>() {
+                match turntable.take_active_child() {
+                    Ok(Some(child)) => {
+                        let _ = child.kill();
+                        log::info!("turntable: killed active sidecar on app exit");
+                    }
+                    Ok(None) => {}
+                    Err(error) => log::error!("turntable: failed to take active sidecar: {error}"),
+                }
             }
         }
     });
