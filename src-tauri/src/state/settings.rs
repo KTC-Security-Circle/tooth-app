@@ -89,13 +89,22 @@ pub struct SettingsPatch {
     pub projector_surface_height: Option<u32>,
     pub fixed_reference_ply: Option<String>,
     pub decode_threshold: Option<u8>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub minimum_fitness: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub maximum_rmse: Option<Option<f64>>,
     pub turntable_speed: Option<f64>,
     pub turntable_port: Option<String>,
     pub turntable_acceleration: Option<f64>,
     pub turntable_settle_time_ms: Option<u64>,
     pub turntable_move_timeout_ms: Option<u64>,
+}
+
+fn deserialize_nullable_patch<'de, D>(deserializer: D) -> Result<Option<Option<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<f64>::deserialize(deserializer)?))
 }
 
 impl SettingsPatch {
@@ -334,7 +343,7 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::Settings;
+    use super::{Settings, SettingsPatch};
 
     #[test]
     fn deserializes_legacy_settings_with_scan_defaults() {
@@ -403,5 +412,27 @@ mod tests {
 
         assert!(settings.matching_source_path.is_empty());
         assert!(settings.matching_target_path.is_empty());
+    }
+
+    #[test]
+    fn distinguishes_omitted_and_null_threshold_patches() {
+        let omitted: SettingsPatch = serde_json::from_str("{}").expect("patch should parse");
+        assert!(omitted.minimum_fitness.is_none());
+        assert!(omitted.maximum_rmse.is_none());
+
+        let cleared: SettingsPatch =
+            serde_json::from_str(r#"{"minimumFitness":null,"maximumRmse":null}"#)
+                .expect("patch should parse");
+        assert_eq!(cleared.minimum_fitness, Some(None));
+        assert_eq!(cleared.maximum_rmse, Some(None));
+
+        let mut settings = Settings {
+            minimum_fitness: Some(0.8),
+            maximum_rmse: Some(0.2),
+            ..Settings::default()
+        };
+        cleared.apply_to(&mut settings);
+        assert!(settings.minimum_fitness.is_none());
+        assert!(settings.maximum_rmse.is_none());
     }
 }

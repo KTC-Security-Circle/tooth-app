@@ -1,3 +1,4 @@
+use anyhow::Context;
 use serde::Serialize;
 use std::path::Path;
 
@@ -54,10 +55,24 @@ pub fn validate_scan_configuration(settings: &Settings) -> Result<PreflightResul
         ));
     }
     let profile_path = Path::new(&settings.calibration_profile_path);
-    let profile = CalibrationProfileManifest::load(profile_path).map_err(AppError::Validation)?;
-    profile
-        .validate_files(profile_path)
-        .map_err(AppError::Validation)?;
+    let profile_result = CalibrationProfileManifest::load(profile_path)
+        .and_then(|profile| profile.validate_files(profile_path))
+        .with_context(|| {
+            format!(
+                "validating calibration profile '{}'",
+                profile_path.display()
+            )
+        });
+    match profile_result {
+        Ok(()) => {}
+        Err(error) => {
+            log::error!("{error:#}");
+            return Err(AppError::Validation(
+                "calibration profile could not be read or is invalid; check the profile and its artifact files"
+                    .to_string(),
+            ));
+        }
+    };
     checks.push(PreflightCheck {
         name: "profileArtifacts".to_string(),
         passed: true,
@@ -97,14 +112,15 @@ fn is_writable(path: &Path) -> bool {
 }
 
 fn check_file(checks: &mut Vec<PreflightCheck>, name: &str, value: &str, label: &str) {
-    let passed = !value.is_empty() && Path::new(value).is_file();
+    let passed =
+        !value.is_empty() && Path::new(value).is_file() && std::fs::File::open(value).is_ok();
     checks.push(PreflightCheck {
         name: name.to_string(),
         passed,
         message: if passed {
             format!("{label} is available")
         } else {
-            format!("{label} is missing: {value}")
+            format!("{label} is missing or unreadable: {value}")
         },
     });
 }
@@ -135,5 +151,24 @@ mod tests {
         let error = validate_scan_configuration(&Settings::default())
             .expect_err("empty settings must fail");
         assert!(matches!(error, AppError::Validation(message) if message.contains("data root")));
+    }
+
+    #[test]
+    fn hides_profile_parser_details_from_validation_error() {
+        let root = std::env::temp_dir().join(format!("tooth-preflight-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let profile = root.join("profile.json");
+        let _ = std::fs::write(&profile, "not json");
+        let settings = Settings {
+            data_root: root.to_string_lossy().into_owned(),
+            fixed_reference_ply: root.join("reference.ply").to_string_lossy().into_owned(),
+            stereo_calibration_file: root.join("stereo.json").to_string_lossy().into_owned(),
+            calibration_profile_path: profile.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let error = validate_scan_configuration(&settings).expect_err("invalid profile must fail");
+        assert!(matches!(error, AppError::Validation(message)
+            if message == "calibration profile could not be read or is invalid; check the profile and its artifact files"));
+        let _ = std::fs::remove_dir_all(root);
     }
 }
