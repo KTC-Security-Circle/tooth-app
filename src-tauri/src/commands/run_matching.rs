@@ -270,14 +270,6 @@ pub(crate) async fn run_matching_paths(
     let _request_guard = state.request_lock.lock().await;
     let source_path = validate_ply_path("source_path", &source_path.to_string_lossy())?;
     let target_path = validate_ply_path("target_path", &target_path.to_string_lossy())?;
-    let mode = match settings.matching_mode.as_str() {
-        "matching" => MatchingMode::Matching,
-        _ => {
-            return Err(AppError::Validation(
-                "matching_mode must be one of ransac, icp, or matching".to_string(),
-            ))
-        }
-    };
     if !settings.matching_voxel_size.is_finite()
         || settings.matching_voxel_size <= 0.0
         || settings.matching_ransac_iterations < 1

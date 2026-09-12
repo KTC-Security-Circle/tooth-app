@@ -1,3 +1,4 @@
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ use crate::state::settings::Settings;
 const CORE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProcessScanSlotRequest {
     pub input_dir: String,
     #[serde(default)]
@@ -95,11 +97,15 @@ async fn process_scan_slot_inner(
             manifest,
         });
     }
+    if manifest.status == SlotStatus::NeedsRescan {
+        start_retry(&mut manifest).map_err(AppError::Internal)?;
+    }
     manifest.status = SlotStatus::Processing;
     manifest
         .save_atomic(&manifest_path)
         .map_err(AppError::Internal)?;
     let attempt = PathBuf::from(&manifest.attempt_dir);
+    let config = &manifest.config;
 
     if manifest.stage == SlotStage::Recorded {
         let response = core_tools.request(serde_json::json!({"cmd":"scan_validate", "input_dir":manifest.input_dir, "allow_partial":false}), CORE_TIMEOUT).await?;
@@ -122,7 +128,7 @@ async fn process_scan_slot_inner(
     }
     let decode = attempt.join("decode");
     if manifest.stage == SlotStage::ScanValidated {
-        let response = core_tools.request(serde_json::json!({"cmd":"decode_patterns", "input_dir":manifest.input_dir, "output_dir":decode, "threshold":settings.decode_threshold, "allow_partial":false}), CORE_TIMEOUT).await?;
+        let response = core_tools.request(serde_json::json!({"cmd":"decode_patterns", "input_dir":manifest.input_dir, "output_dir":decode, "threshold":config.decode_threshold, "allow_partial":false}), CORE_TIMEOUT).await?;
         if !response
             .get("ok")
             .and_then(serde_json::Value::as_bool)
@@ -137,7 +143,7 @@ async fn process_scan_slot_inner(
             .map_err(AppError::Internal)?;
     }
     if manifest.stage == SlotStage::Decoded {
-        let response = core_tools.request(serde_json::json!({"cmd":"reconstruct_validate", "decode_dir":decode, "calibration_file":settings.stereo_calibration_file}), CORE_TIMEOUT).await?;
+        let response = core_tools.request(serde_json::json!({"cmd":"reconstruct_validate", "decode_dir":decode, "calibration_file":config.stereo_calibration_file}), CORE_TIMEOUT).await?;
         if !response
             .get("ok")
             .and_then(serde_json::Value::as_bool)
@@ -156,7 +162,7 @@ async fn process_scan_slot_inner(
     }
     let cloud = attempt.join("reconstruction.ply");
     if manifest.stage == SlotStage::ReconstructionValidated {
-        let response = core_tools.request(serde_json::json!({"cmd":"reconstruct_point_cloud", "decode_dir":decode, "calibration_file":settings.stereo_calibration_file, "output_file":cloud}), CORE_TIMEOUT).await?;
+        let response = core_tools.request(serde_json::json!({"cmd":"reconstruct_point_cloud", "decode_dir":decode, "calibration_file":config.stereo_calibration_file, "output_file":cloud}), CORE_TIMEOUT).await?;
         if !response
             .get("ok")
             .and_then(serde_json::Value::as_bool)
@@ -179,8 +185,8 @@ async fn process_scan_slot_inner(
             app,
             matching,
             &cloud,
-            Path::new(&settings.fixed_reference_ply),
-            settings,
+            Path::new(&config.fixed_reference_ply),
+            config,
         )
         .await?;
         manifest.matching =
@@ -254,6 +260,27 @@ fn needs_rescan(
     })
 }
 
+fn start_retry(manifest: &mut ScanSlotManifest) -> Result<(), String> {
+    let attempt_dir = Path::new(&manifest.attempt_dir);
+    let session_dir = attempt_dir
+        .parent()
+        .ok_or_else(|| "scan slot attempt has no session directory".to_string())?;
+    let mut attempt = manifest.attempt + 1;
+    while session_dir.join(format!("attempt-{attempt:04}")).exists() {
+        attempt += 1;
+    }
+    let attempt_dir = session_dir.join(format!("attempt-{attempt:04}"));
+    std::fs::create_dir_all(&attempt_dir)
+        .map_err(|error| format!("failed to create retry attempt directory: {error}"))?;
+    manifest.attempt = attempt;
+    manifest.attempt_dir = attempt_dir.to_string_lossy().into_owned();
+    manifest.stage = SlotStage::Recorded;
+    manifest.status = SlotStatus::Processing;
+    manifest.matching = None;
+    manifest.reason = None;
+    Ok(())
+}
+
 fn decode_artifact_valid(path: &Path) -> bool {
     path.join("metadata.json").is_file()
         && [
@@ -269,11 +296,88 @@ fn decode_artifact_valid(path: &Path) -> bool {
 }
 
 fn valid_ply(path: &Path) -> bool {
-    path.is_file()
-        && std::fs::read(path).ok().is_some_and(|b| {
-            let h = String::from_utf8_lossy(&b[..b.len().min(65536)]);
-            h.lines().next() == Some("ply")
-                && h.lines().any(|l| l.trim() == "end_header")
-                && h.lines().any(|l| l.starts_with("element vertex "))
-        })
+    const MAX_HEADER_BYTES: u64 = 64 * 1024;
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut reader = std::io::BufReader::new(file).take(MAX_HEADER_BYTES);
+    let mut first_line = true;
+    let mut has_vertex = false;
+    loop {
+        let mut line = Vec::new();
+        let Ok(read) = reader.read_until(b'\n', &mut line) else {
+            return false;
+        };
+        if read == 0 {
+            return false;
+        }
+        let line = line.strip_suffix(&[b'\r']).unwrap_or(&line);
+        let line = line.strip_suffix(&[b'\n']).unwrap_or(line);
+        if first_line {
+            if line != b"ply" {
+                return false;
+            }
+            first_line = false;
+            continue;
+        }
+        if line == b"end_header" {
+            return has_vertex;
+        }
+        if line.starts_with(b"element vertex ") {
+            has_vertex = true;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retry_starts_new_attempt_without_changing_input_or_config() {
+        let root = std::env::temp_dir().join(format!("tooth-scan-retry-{}", std::process::id()));
+        let session = root.join("session");
+        let attempt = session.join("attempt-0001");
+        std::fs::create_dir_all(&attempt).expect("attempt should be created");
+        let config = Settings::default();
+        let mut manifest = ScanSlotManifest {
+            version: 1,
+            session_id: "session".to_string(),
+            status: SlotStatus::NeedsRescan,
+            stage: SlotStage::Matched,
+            attempt: 1,
+            input_dir: "/scan/input".to_string(),
+            attempt_dir: attempt.to_string_lossy().into_owned(),
+            config: config.clone(),
+            matching: Some(serde_json::json!({"status": "needs_rescan"})),
+            reason: Some("retry".to_string()),
+        };
+
+        start_retry(&mut manifest).expect("retry should start");
+
+        assert_eq!(manifest.attempt, 2);
+        assert_eq!(manifest.stage, SlotStage::Recorded);
+        assert_eq!(manifest.status, SlotStatus::Processing);
+        assert_eq!(manifest.input_dir, "/scan/input");
+        assert_eq!(
+            serde_json::to_value(&manifest.config).expect("config should serialize"),
+            serde_json::to_value(&config).expect("config should serialize")
+        );
+        assert!(manifest.matching.is_none());
+        assert!(manifest.reason.is_none());
+        assert!(Path::new(&manifest.attempt_dir).is_dir());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn valid_ply_does_not_read_payload() {
+        let path =
+            std::env::temp_dir().join(format!("tooth-ply-header-{}.ply", std::process::id()));
+        let mut contents =
+            b"ply\nformat binary_little_endian 1.0\nelement vertex 1\nend_header\n".to_vec();
+        contents.extend(std::iter::repeat(0).take(1024 * 1024));
+        std::fs::write(&path, contents).expect("PLY should be written");
+        assert!(valid_ply(&path));
+        let _ = std::fs::remove_file(path);
+    }
 }
