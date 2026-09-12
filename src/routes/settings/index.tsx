@@ -220,17 +220,14 @@ function SettingsPage() {
                   id="matching-mode"
                   value={settings.matchingMode ?? 'matching'}
                   onChange={(e) => {
-                    updateField('matchingMode', e.currentTarget.value)
+                    const value = e.currentTarget.value
+                    if (value === 'matching') {
+                      updateField('matchingMode', value)
+                    }
                   }}
                 >
                   <FormField.Select.Option value="matching">
                     マッチング
-                  </FormField.Select.Option>
-                  <FormField.Select.Option value="ransac">
-                    RANSAC
-                  </FormField.Select.Option>
-                  <FormField.Select.Option value="icp">
-                    ICP
                   </FormField.Select.Option>
                 </FormField.Select>
               </FormField>

@@ -13,7 +13,7 @@ export type Settings = {
   calibrationImagePath?: string
   matchingSourcePath?: string
   matchingTargetPath?: string
-  matchingMode?: string
+  matchingMode?: 'matching'
   matchingVoxelSize?: number
   matchingRansacIterations?: number
 }
