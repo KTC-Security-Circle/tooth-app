@@ -1,3 +1,4 @@
+use std::io::{BufReader, Read};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ use crate::state::settings::Settings;
 
 const MATCHING_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(1);
+const PLY_HEADER_LIMIT: usize = 64 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -333,10 +335,17 @@ pub async fn run_matching(
 
 fn validate_ply_path(name: &str, value: &str) -> Result<String, AppError> {
     let path = std::path::Path::new(value);
-    let bytes = std::fs::read(path).map_err(|error| {
+    let file = std::fs::File::open(path).map_err(|error| {
         AppError::Validation(format!("{name} must be a readable PLY file: {error}"))
     })?;
-    let header = String::from_utf8_lossy(&bytes[..bytes.len().min(64 * 1024)]);
+    let mut bytes = Vec::new();
+    BufReader::with_capacity(PLY_HEADER_LIMIT, file)
+        .take(PLY_HEADER_LIMIT as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            AppError::Validation(format!("{name} must be a readable PLY file: {error}"))
+        })?;
+    let header = String::from_utf8_lossy(&bytes);
     let has_vertex = header.lines().any(|line| {
         let mut fields = line.split_whitespace();
         fields.next() == Some("element")
@@ -465,5 +474,20 @@ mod tests {
             assess_result(&low_quality, Some(0.1), Some(1.0)).status,
             "needs_rescan"
         );
+    }
+
+    #[test]
+    fn valid_ply_with_large_payload_only_requires_header_read() {
+        let path =
+            std::env::temp_dir().join(format!("tooth-app-ply-header-{}.ply", std::process::id()));
+        let mut contents =
+            b"ply\nformat binary_little_endian 1.0\nelement vertex 1\nend_header\n".to_vec();
+        contents.extend(std::iter::repeat_n(0, 1024 * 1024));
+        std::fs::write(&path, contents).expect("write test PLY");
+
+        let result = super::validate_ply_path("source_path", &path.to_string_lossy());
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok());
     }
 }
