@@ -15,9 +15,23 @@ export const Route = createRootRoute({
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <nav className="border-border border-b bg-card px-4 py-3">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
-          <span className="font-semibold text-foreground text-sm">
-            Tooth Calibrator
-          </span>
+          <div className="flex items-center gap-4">
+            <Link
+              to="/"
+              className="font-semibold text-foreground text-sm transition-colors hover:text-primary"
+              activeProps={{ className: 'text-primary' }}
+              activeOptions={{ exact: true }}
+            >
+              Tooth Calibrator
+            </Link>
+            <Link
+              to="/scan"
+              className="text-muted-foreground text-sm transition-colors hover:text-foreground"
+              activeProps={{ className: 'font-medium text-foreground' }}
+            >
+              スキャン
+            </Link>
+          </div>
           <Link
             to="/settings"
             aria-label="設定"
