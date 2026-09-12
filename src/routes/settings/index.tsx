@@ -212,27 +212,6 @@ function SettingsPage() {
               </FormField>
 
               <FormField labelWidth="200px">
-                <FormField.Label htmlFor="matching-mode">
-                  マッチングモード
-                </FormField.Label>
-                <FormField.Select
-                  className="sm:max-w-40"
-                  id="matching-mode"
-                  value={settings.matchingMode ?? 'matching'}
-                  onChange={(e) => {
-                    const value = e.currentTarget.value
-                    if (value === 'matching') {
-                      updateField('matchingMode', value)
-                    }
-                  }}
-                >
-                  <FormField.Select.Option value="matching">
-                    マッチング
-                  </FormField.Select.Option>
-                </FormField.Select>
-              </FormField>
-
-              <FormField labelWidth="200px">
                 <FormField.Label htmlFor="matching-voxel-size">
                   ボクセルサイズ
                 </FormField.Label>

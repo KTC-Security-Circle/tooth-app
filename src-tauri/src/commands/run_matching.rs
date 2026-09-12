@@ -16,20 +16,6 @@ const MATCHING_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(1);
 const PLY_HEADER_LIMIT: usize = 64 * 1024;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MatchingMode {
-    Matching,
-}
-
-impl MatchingMode {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Matching => "matching",
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MatchingAssessment {
     pub status: String,
@@ -242,14 +228,6 @@ pub async fn run_matching(
     let settings = Settings::load(&app)?;
     let source_path = validate_ply_path("source_path", &settings.matching_source_path)?;
     let target_path = validate_ply_path("target_path", &settings.matching_target_path)?;
-    let mode = match settings.matching_mode.as_str() {
-        "matching" => MatchingMode::Matching,
-        _ => {
-            return Err(AppError::Validation(
-                "matching_mode must be one of ransac, icp, or matching".to_string(),
-            ))
-        }
-    };
     if !settings.matching_voxel_size.is_finite() || settings.matching_voxel_size <= 0.0 {
         return Err(AppError::Validation(
             "matching_voxel_size must be finite and greater than zero".to_string(),
@@ -276,7 +254,7 @@ pub async fn run_matching(
     start_matching_server_inner(&app, &state).await?;
     let request = serde_json::json!({
         "command": "matching",
-        "mode": mode.as_str(),
+        "mode": "matching",
         "source_path": source_path,
         "target_path": target_path,
         "voxel_size": settings.matching_voxel_size,
