@@ -9,6 +9,7 @@ pub mod preflight_scan;
 pub mod process_scan_slot;
 pub mod recalibrate;
 pub mod run_matching;
+pub mod scan_session;
 pub mod send_core_tools_command;
 pub mod settings_exists;
 pub mod start_core_tools;
