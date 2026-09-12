@@ -18,8 +18,6 @@ pub struct Settings {
     pub matching_source_path: String,
     #[serde(default)]
     pub matching_target_path: String,
-    #[serde(default = "default_matching_mode")]
-    pub matching_mode: String,
     #[serde(default = "default_matching_voxel_size")]
     pub matching_voxel_size: f64,
     #[serde(default = "default_matching_ransac_iterations")]
@@ -76,8 +74,6 @@ pub struct SettingsPatch {
     #[serde(default)]
     pub matching_target_path: Option<String>,
     #[serde(default)]
-    pub matching_mode: Option<String>,
-    #[serde(default)]
     pub matching_voxel_size: Option<f64>,
     #[serde(default)]
     pub matching_ransac_iterations: Option<u64>,
@@ -129,9 +125,6 @@ impl SettingsPatch {
         }
         if let Some(v) = &self.matching_target_path {
             settings.matching_target_path = v.clone();
-        }
-        if let Some(v) = &self.matching_mode {
-            settings.matching_mode = v.clone();
         }
         if let Some(v) = self.matching_voxel_size {
             settings.matching_voxel_size = v;
@@ -189,7 +182,6 @@ impl Default for Settings {
             developer_mode: false,
             matching_source_path: String::new(),
             matching_target_path: String::new(),
-            matching_mode: default_matching_mode(),
             matching_voxel_size: default_matching_voxel_size(),
             matching_ransac_iterations: default_matching_ransac_iterations(),
             data_root: String::new(),
@@ -209,10 +201,6 @@ impl Default for Settings {
             turntable_move_timeout_ms: 0,
         }
     }
-}
-
-fn default_matching_mode() -> String {
-    "matching".to_string()
 }
 
 const fn default_matching_voxel_size() -> f64 {
@@ -364,6 +352,7 @@ mod tests {
         assert!(serialized
             .get("maximumRmse")
             .is_some_and(serde_json::Value::is_null));
+        assert!(serialized.get("matchingMode").is_none());
         assert_eq!(serialized["turntableMoveTimeoutMs"], 0);
     }
 

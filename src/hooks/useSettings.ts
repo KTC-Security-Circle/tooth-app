@@ -13,7 +13,6 @@ export type Settings = {
   calibrationImagePath?: string
   matchingSourcePath?: string
   matchingTargetPath?: string
-  matchingMode?: string
   matchingVoxelSize?: number
   matchingRansacIterations?: number
 }
@@ -32,7 +31,6 @@ export const defaultSettings: Settings = {
   developerMode: false,
   matchingSourcePath: '',
   matchingTargetPath: '',
-  matchingMode: 'matching',
   matchingVoxelSize: 0.25,
   matchingRansacIterations: 30,
 }
@@ -79,9 +77,6 @@ export function useSettings({
       }
       if (settings.matchingTargetPath !== undefined) {
         patch.matchingTargetPath = settings.matchingTargetPath
-      }
-      if (settings.matchingMode !== undefined) {
-        patch.matchingMode = settings.matchingMode
       }
       if (settings.matchingVoxelSize !== undefined) {
         patch.matchingVoxelSize = settings.matchingVoxelSize
@@ -206,7 +201,6 @@ export function useSettings({
         calibrationImagePath: undefined,
         matchingSourcePath: undefined,
         matchingTargetPath: undefined,
-        matchingMode: undefined,
         matchingVoxelSize: undefined,
         matchingRansacIterations: undefined,
       }))

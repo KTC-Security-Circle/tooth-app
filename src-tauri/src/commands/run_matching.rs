@@ -1,3 +1,4 @@
+use std::io::{BufReader, Read};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -13,23 +14,12 @@ use crate::state::settings::Settings;
 
 const MATCHING_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(1);
+const PLY_HEADER_LIMIT: usize = 64 * 1024;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MatchingMode {
-    Ransac,
-    Icp,
-    Matching,
-}
-
-impl MatchingMode {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Ransac => "ransac",
-            Self::Icp => "icp",
-            Self::Matching => "matching",
-        }
-    }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MatchingAssessment {
+    pub status: String,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,6 +28,14 @@ pub struct MatchingResult {
     pub inlier_rmse: f64,
     pub transformation: [[f64; 4]; 4],
     pub correspondence_set: Vec<[i64; 2]>,
+    #[serde(default)]
+    pub source_point_count: usize,
+    #[serde(default)]
+    pub target_point_count: usize,
+    #[serde(default)]
+    pub correspondence_count: usize,
+    #[serde(default)]
+    pub assessment: Option<MatchingAssessment>,
 }
 
 pub async fn start_matching_server(app: &AppHandle, state: &MatchingState) -> Result<(), AppError> {
@@ -228,23 +226,8 @@ pub async fn run_matching(
 ) -> Result<MatchingResult, AppError> {
     let _request_guard = state.request_lock.lock().await;
     let settings = Settings::load(&app)?;
-    if !settings.developer_mode {
-        return Err(AppError::Validation(
-            "developer mode must be enabled to run matching".to_string(),
-        ));
-    }
     let source_path = validate_ply_path("source_path", &settings.matching_source_path)?;
     let target_path = validate_ply_path("target_path", &settings.matching_target_path)?;
-    let mode = match settings.matching_mode.as_str() {
-        "ransac" => MatchingMode::Ransac,
-        "icp" => MatchingMode::Icp,
-        "matching" => MatchingMode::Matching,
-        _ => {
-            return Err(AppError::Validation(
-                "matching_mode must be one of ransac, icp, or matching".to_string(),
-            ))
-        }
-    };
     if !settings.matching_voxel_size.is_finite() || settings.matching_voxel_size <= 0.0 {
         return Err(AppError::Validation(
             "matching_voxel_size must be finite and greater than zero".to_string(),
@@ -255,15 +238,29 @@ pub async fn run_matching(
             "matching_ransac_iterations must be at least 1".to_string(),
         ));
     }
+    if settings
+        .minimum_fitness
+        .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
+        || settings
+            .maximum_rmse
+            .is_some_and(|value| !value.is_finite() || value < 0.0)
+    {
+        return Err(AppError::Validation(
+            "matching quality thresholds must be finite and non-negative (fitness is at most 1)"
+                .to_string(),
+        ));
+    }
 
     start_matching_server_inner(&app, &state).await?;
     let request = serde_json::json!({
         "command": "matching",
-        "mode": mode.as_str(),
+        "mode": "matching",
         "source_path": source_path,
         "target_path": target_path,
         "voxel_size": settings.matching_voxel_size,
         "ransac_iterations": settings.matching_ransac_iterations,
+        "minimum_fitness": settings.minimum_fitness,
+        "maximum_rmse": settings.maximum_rmse,
     });
     let sender = state
         .cmd_tx
@@ -303,20 +300,52 @@ pub async fn run_matching(
             "3mserve matching error: {error}"
         )));
     }
-    let result = serde_json::from_value::<MatchingResult>(response)
+    let mut result = serde_json::from_value::<MatchingResult>(response)
         .map_err(|error| AppError::Matching(format!("invalid matching JSON: {error}")))?;
     validate_result(&result)?;
+    result.assessment = Some(assess_result(
+        &result,
+        settings.minimum_fitness,
+        settings.maximum_rmse,
+    ));
     Ok(result)
 }
 
 fn validate_ply_path(name: &str, value: &str) -> Result<String, AppError> {
     let path = std::path::Path::new(value);
+    let file = std::fs::File::open(path).map_err(|error| {
+        AppError::Validation(format!("{name} must be a readable PLY file: {error}"))
+    })?;
+    let mut bytes = Vec::new();
+    BufReader::with_capacity(PLY_HEADER_LIMIT, file)
+        .take(PLY_HEADER_LIMIT as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            AppError::Validation(format!("{name} must be a readable PLY file: {error}"))
+        })?;
+    let header = String::from_utf8_lossy(&bytes);
+    let has_vertex = header.lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        fields.next() == Some("element")
+            && fields.next() == Some("vertex")
+            && fields
+                .next()
+                .and_then(|count| count.parse::<usize>().ok())
+                .is_some_and(|count| count > 0)
+    });
     if value.trim().is_empty()
         || !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("ply"))
         || !path.is_file()
+        || bytes.is_empty()
+        || header
+            .lines()
+            .next()
+            .is_none_or(|line| line.trim() != "ply")
+        || !header.lines().any(|line| line.trim() == "end_header")
+        || !has_vertex
     {
         return Err(AppError::Validation(format!(
             "{name} must be an existing regular PLY file"
@@ -333,10 +362,110 @@ fn validate_result(result: &MatchingResult) -> Result<(), AppError> {
             .iter()
             .flatten()
             .any(|value| !value.is_finite())
+        || result.fitness < 0.0
+        || result.fitness > 1.0
+        || result.inlier_rmse < 0.0
+        || result.correspondence_count != result.correspondence_set.len()
+        || result.correspondence_set.iter().any(|[source, target]| {
+            *source < 0
+                || *target < 0
+                || (*source as usize) >= result.source_point_count
+                || (*target as usize) >= result.target_point_count
+        })
     {
         return Err(AppError::Matching(
-            "matching result contains non-finite values".to_string(),
+            "matching result is malformed or contains non-finite values".to_string(),
         ));
     }
     Ok(())
+}
+
+fn assess_result(
+    result: &MatchingResult,
+    minimum_fitness: Option<f64>,
+    maximum_rmse: Option<f64>,
+) -> MatchingAssessment {
+    if result.source_point_count < 3
+        || result.target_point_count < 3
+        || result.correspondence_count < 3
+    {
+        return MatchingAssessment {
+            status: "needs_rescan".to_string(),
+            reasons: vec!["insufficient_quality".to_string()],
+        };
+    }
+    let fitness_ok = minimum_fitness.is_none_or(|minimum| result.fitness >= minimum);
+    let rmse_ok = maximum_rmse.is_none_or(|maximum| result.inlier_rmse <= maximum);
+    if minimum_fitness.is_none() && maximum_rmse.is_none() {
+        MatchingAssessment {
+            status: "needs_review".to_string(),
+            reasons: vec!["thresholds_not_provided".to_string()],
+        }
+    } else if fitness_ok && rmse_ok {
+        MatchingAssessment {
+            status: "matched".to_string(),
+            reasons: Vec::new(),
+        }
+    } else {
+        MatchingAssessment {
+            status: "not_matched".to_string(),
+            reasons: vec!["quality_threshold_not_met".to_string()],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{assess_result, MatchingResult};
+
+    fn result() -> MatchingResult {
+        MatchingResult {
+            fitness: 0.9,
+            inlier_rmse: 0.1,
+            transformation: [[0.0; 4]; 4],
+            correspondence_set: vec![[0, 0], [1, 1], [2, 2]],
+            source_point_count: 3,
+            target_point_count: 3,
+            correspondence_count: 3,
+            assessment: None,
+        }
+    }
+
+    #[test]
+    fn missing_thresholds_require_review() {
+        assert_eq!(assess_result(&result(), None, None).status, "needs_review");
+    }
+
+    #[test]
+    fn quality_thresholds_produce_deterministic_verdicts() {
+        assert_eq!(
+            assess_result(&result(), Some(0.8), Some(0.2)).status,
+            "matched"
+        );
+        assert_eq!(
+            assess_result(&result(), Some(0.95), Some(0.2)).status,
+            "not_matched"
+        );
+        let mut low_quality = result();
+        low_quality.correspondence_count = 2;
+        assert_eq!(
+            assess_result(&low_quality, Some(0.1), Some(1.0)).status,
+            "needs_rescan"
+        );
+    }
+
+    #[test]
+    fn valid_ply_with_large_payload_only_requires_header_read() {
+        let path =
+            std::env::temp_dir().join(format!("tooth-app-ply-header-{}.ply", std::process::id()));
+        let mut contents =
+            b"ply\nformat binary_little_endian 1.0\nelement vertex 1\nend_header\n".to_vec();
+        contents.extend(std::iter::repeat_n(0, 1024 * 1024));
+        std::fs::write(&path, contents).expect("write test PLY");
+
+        let result = super::validate_ply_path("source_path", &path.to_string_lossy());
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok());
+    }
 }
