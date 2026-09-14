@@ -189,11 +189,11 @@ function ScanPage() {
               <span className="font-medium text-foreground">
                 {sessionStatusLabel(session.status)}
               </span>
-              {session.current_slot !== null && (
+              {session.currentSlot !== null && (
                 <>
                   <span className="text-muted-foreground">現在のスロット:</span>
                   <span className="font-medium text-foreground">
-                    {session.current_slot}
+                    {session.currentSlot}
                   </span>
                 </>
               )}

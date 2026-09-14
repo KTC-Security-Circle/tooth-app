@@ -36,6 +36,13 @@ function buildInputDirs(baseDir: string): string[] {
   )
 }
 
+function sessionFailureMessage(session: ScanSessionManifest): string {
+  if (session.reason !== null && session.reason.length > 0) {
+    return `スキャンセッションが失敗しました: ${session.reason}`
+  }
+  return 'スキャンセッションが失敗しました。再スキャンが必要なスロットがあります。'
+}
+
 export function useScanWorkflow() {
   const [status, setStatus] = useState<Status>({ type: 'idle' })
   const [preflight, setPreflight] = useState<{
@@ -47,6 +54,7 @@ export function useScanWorkflow() {
   const [session, setSession] = useState<ScanSessionManifest | null>(null)
   const [sessionId, setSessionId] = useState(generateSessionId)
   const [baseDir, setBaseDir] = useState('')
+  const [isSessionRunning, setIsSessionRunning] = useState(false)
   const runningRef = useRef(false)
 
   const withStatus = useCallback(
@@ -122,7 +130,7 @@ export function useScanWorkflow() {
       return
     }
     try {
-      const result = await getScanSession({ session_id: id })
+      const result = await getScanSession({ sessionId: id })
       setSession(result.session)
     } catch {
       setSession(null)
@@ -144,25 +152,34 @@ export function useScanWorkflow() {
       return
     }
     runningRef.current = true
+    setIsSessionRunning(true)
     setStatus({
       type: 'loading',
       message: 'スキャンセッションを開始しています...',
     })
     try {
       const result = await startScanSession({
-        session_id: id,
-        input_dirs: inputDirs,
+        sessionId: id,
+        inputDirs,
       })
       setSession(result.session)
-      setStatus({
-        type: 'success',
-        message: 'スキャンセッションが完了しました',
-      })
+      if (result.session.status === 'failed') {
+        setStatus({
+          type: 'error',
+          message: sessionFailureMessage(result.session),
+        })
+      } else {
+        setStatus({
+          type: 'success',
+          message: 'スキャンセッションが完了しました',
+        })
+      }
     } catch (e) {
       setStatus({ type: 'error', message: extractErrorMessage(e) })
       await refreshSession()
     } finally {
       runningRef.current = false
+      setIsSessionRunning(false)
     }
   }, [baseDir, refreshSession, sessionId])
 
@@ -173,22 +190,31 @@ export function useScanWorkflow() {
       return
     }
     runningRef.current = true
+    setIsSessionRunning(true)
     setStatus({
       type: 'loading',
       message: 'スキャンセッションを再開しています...',
     })
     try {
-      const result = await resumeScanSession({ session_id: id })
+      const result = await resumeScanSession({ sessionId: id })
       setSession(result.session)
-      setStatus({
-        type: 'success',
-        message: 'スキャンセッションが完了しました',
-      })
+      if (result.session.status === 'failed') {
+        setStatus({
+          type: 'error',
+          message: sessionFailureMessage(result.session),
+        })
+      } else {
+        setStatus({
+          type: 'success',
+          message: 'スキャンセッションが完了しました',
+        })
+      }
     } catch (e) {
       setStatus({ type: 'error', message: extractErrorMessage(e) })
       await refreshSession()
     } finally {
       runningRef.current = false
+      setIsSessionRunning(false)
     }
   }, [refreshSession, sessionId])
 
@@ -210,29 +236,38 @@ export function useScanWorkflow() {
         return
       }
       runningRef.current = true
+      setIsSessionRunning(true)
       setStatus({
         type: 'loading',
         message: `スロット ${slot} の再スキャンを開始しています...`,
       })
       try {
-        const result = await retryScanSession({ session_id: id, slot })
+        const result = await retryScanSession({ sessionId: id, slot })
         setSession(result.session)
-        setStatus({
-          type: 'success',
-          message: `スロット ${slot} の再スキャンが完了しました`,
-        })
+        if (result.session.status === 'failed') {
+          setStatus({
+            type: 'error',
+            message: `スロット ${slot} の再スキャンが失敗しました。`,
+          })
+        } else {
+          setStatus({
+            type: 'success',
+            message: `スロット ${slot} の再スキャンが完了しました`,
+          })
+        }
       } catch (e) {
         setStatus({ type: 'error', message: extractErrorMessage(e) })
         await refreshSession()
       } finally {
         runningRef.current = false
+        setIsSessionRunning(false)
       }
     },
     [refreshSession, sessionId],
   )
 
   useEffect(() => {
-    const isRunning = session?.status === 'running' || runningRef.current
+    const isRunning = session?.status === 'running' || isSessionRunning
     if (!isRunning) {
       return
     }
@@ -242,7 +277,7 @@ export function useScanWorkflow() {
     return () => {
       clearInterval(timer)
     }
-  }, [refreshSession, session?.status])
+  }, [refreshSession, session?.status, isSessionRunning])
 
   return {
     status,

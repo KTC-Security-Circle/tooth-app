@@ -17,16 +17,16 @@ export type SlotStatus = 'complete' | 'needs_rescan' | 'processing'
 
 export type ScanSessionSlot = {
   slot: number
-  input_dir: string
+  inputDir: string
   status: SlotStatus | null
   reason: string | null
 }
 
 export type ScanSessionManifest = {
   version: number
-  session_id: string
+  sessionId: string
   status: SessionStatus
-  current_slot: number | null
+  currentSlot: number | null
   slots: ScanSessionSlot[]
   reason: string | null
 }
@@ -36,16 +36,16 @@ export type ScanSessionResult = {
 }
 
 export type StartScanSessionRequest = {
-  session_id: string
-  input_dirs: string[]
+  sessionId: string
+  inputDirs: string[]
 }
 
 export type SessionRequest = {
-  session_id: string
+  sessionId: string
 }
 
 export type RetryScanSessionRequest = {
-  session_id: string
+  sessionId: string
   slot: number
 }
 
