@@ -84,10 +84,10 @@ pub fn run() {
             commands::stop_core_tools::stop_core_tools,
             commands::preflight_scan::preflight_scan,
             commands::process_scan_slot::process_scan_slot,
-            commands::scan_session::start_scan_session,
-            commands::scan_session::resume_scan_session,
-            commands::scan_session::retry_scan_session,
-            commands::scan_session::get_scan_session,
+            commands::start_scan_session::start_scan_session,
+            commands::resume_scan_session::resume_scan_session,
+            commands::retry_scan_session::retry_scan_session,
+            commands::get_scan_session::get_scan_session,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

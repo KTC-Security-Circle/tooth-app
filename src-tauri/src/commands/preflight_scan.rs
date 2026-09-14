@@ -5,7 +5,6 @@ use std::path::Path;
 use crate::{
     errors::AppError,
     state::{scan_configuration::CalibrationProfileManifest, settings::Settings},
-    utils::config::calibration_profile_path,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,16 +127,8 @@ fn check_file(checks: &mut Vec<PreflightCheck>, name: &str, value: &str, label: 
 #[tauri::command]
 pub async fn preflight_scan(app: tauri::AppHandle) -> Result<PreflightResult, AppError> {
     let settings = Settings::load(&app)?;
-    // Resolve the default profile without starting a sidecar or touching hardware.
-    let settings = if settings.calibration_profile_path.is_empty() {
-        let mut settings = settings;
-        settings.calibration_profile_path = calibration_profile_path(&app)?
-            .to_string_lossy()
-            .into_owned();
-        settings
-    } else {
-        settings
-    };
+    let mut settings = settings;
+    settings.resolve_calibration_profile(&app)?;
     validate_scan_configuration(&settings)
 }
 
