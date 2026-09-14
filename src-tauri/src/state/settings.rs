@@ -216,6 +216,14 @@ const fn default_decode_threshold() -> u8 {
 }
 
 impl Settings {
+    pub fn resolve_calibration_profile(&mut self, app: &tauri::AppHandle) -> Result<(), AppError> {
+        if self.calibration_profile_path.is_empty() {
+            self.calibration_profile_path = crate::utils::config::calibration_profile_path(app)?
+                .to_string_lossy()
+                .into_owned();
+        }
+        Ok(())
+    }
     /// 設定ファイルから読み込む。ファイル不在・パース失敗時はデフォルト値を返す。
     pub fn load(app: &tauri::AppHandle) -> Result<Self, AppError> {
         let path = config_file_path(app)?;

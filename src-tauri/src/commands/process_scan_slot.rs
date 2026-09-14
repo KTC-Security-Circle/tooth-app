@@ -45,7 +45,7 @@ pub async fn process_scan_slot(
     .await
 }
 
-async fn process_scan_slot_inner(
+pub(crate) async fn process_scan_slot_inner(
     app: &AppHandle,
     core_tools: &CoreToolsState,
     matching: &crate::state::matching::MatchingState,
@@ -375,7 +375,7 @@ mod tests {
             std::env::temp_dir().join(format!("tooth-ply-header-{}.ply", std::process::id()));
         let mut contents =
             b"ply\nformat binary_little_endian 1.0\nelement vertex 1\nend_header\n".to_vec();
-        contents.extend(std::iter::repeat(0).take(1024 * 1024));
+        contents.extend(std::iter::repeat_n(0, 1024 * 1024));
         std::fs::write(&path, contents).expect("PLY should be written");
         assert!(valid_ply(&path));
         let _ = std::fs::remove_file(path);

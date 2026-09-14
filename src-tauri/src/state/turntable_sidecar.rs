@@ -2,7 +2,7 @@ use crate::errors::AppError;
 use crate::state::settings::Settings;
 use crate::state::turntable::TurntableState;
 use std::time::Duration;
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
@@ -51,7 +51,7 @@ pub fn args(
 
 pub async fn run(
     app: &AppHandle,
-    state: &State<'_, TurntableState>,
+    state: &TurntableState,
     args: Vec<String>,
     timeout: Duration,
     track: bool,
