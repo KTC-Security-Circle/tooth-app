@@ -12,6 +12,11 @@ pub async fn send_core_tools_command(
     state: State<'_, CoreToolsState>,
     json: String,
 ) -> Result<(), AppError> {
+    if state.live_scan_lock.try_lock().is_err() {
+        return Err(AppError::CoreTools(
+            "raw core-tools commands are blocked while a live scan is running".into(),
+        ));
+    }
     let tx = state
         .cmd_tx
         .lock()

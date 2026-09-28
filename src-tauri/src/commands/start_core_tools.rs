@@ -6,7 +6,8 @@ use tauri_plugin_shell::ShellExt;
 
 use crate::errors::AppError;
 use crate::state::core_tools::{
-    drain_pending_requests, resolve_pending_response, CoreToolsState, CoreToolsStatus,
+    drain_pending_requests, drain_progress_waiters, drain_terminal_waiters,
+    resolve_pending_response, resolve_progress_event, CoreToolsState, CoreToolsStatus,
 };
 
 /// tooth-backend (core-tools) の起動引数。
@@ -37,6 +38,11 @@ pub async fn start_core_tools_inner(
     app: &tauri::AppHandle,
     state: &CoreToolsState,
 ) -> Result<(), AppError> {
+    if state.live_scan_lock.try_lock().is_err() {
+        return Err(AppError::CoreTools(
+            "cannot restart core-tools while a live scan is running".to_string(),
+        ));
+    }
     // 二重起動防止
     {
         let status = *lock_status(&state.status);
@@ -104,6 +110,8 @@ pub async fn start_core_tools_inner(
     let status_for_reader = state.status.clone();
     let terminated_for_reader = state.terminated.clone();
     let pending_requests_for_reader = state.pending_requests.clone();
+    let terminal_waiters_for_reader = state.terminal_waiters.clone();
+    let progress_waiters_for_reader = state.progress_waiters.clone();
     async_runtime::spawn(async move {
         let mut ready_signalled = false;
         let mut stdout = JsonLines::default();
@@ -114,6 +122,11 @@ pub async fn start_core_tools_inner(
                         match serde_json::from_slice::<serde_json::Value>(&line) {
                             Ok(v) => {
                                 resolve_pending_response(&pending_requests_for_reader, &v);
+                                crate::state::core_tools::resolve_terminal_event(
+                                    &terminal_waiters_for_reader,
+                                    &v,
+                                );
+                                resolve_progress_event(&progress_waiters_for_reader, &v);
                                 if v.get("event").is_some() {
                                     if !ready_signalled
                                         && v.get("event").and_then(serde_json::Value::as_str)
@@ -143,6 +156,8 @@ pub async fn start_core_tools_inner(
                 CommandEvent::Error(msg) => {
                     log::error!("core-tools command error: {msg}");
                     drain_pending_requests(&pending_requests_for_reader);
+                    drain_terminal_waiters(&terminal_waiters_for_reader);
+                    drain_progress_waiters(&progress_waiters_for_reader);
                     if !ready_signalled {
                         ready_signalled = true;
                         *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
@@ -158,6 +173,8 @@ pub async fn start_core_tools_inner(
                         payload.signal
                     );
                     drain_pending_requests(&pending_requests_for_reader);
+                    drain_terminal_waiters(&terminal_waiters_for_reader);
+                    drain_progress_waiters(&progress_waiters_for_reader);
                     terminated_for_reader.notify_one();
                     // ガードを await の前に確実に落とす (Send 要求)
                     let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
@@ -185,6 +202,8 @@ pub async fn start_core_tools_inner(
             }
         }
         drain_pending_requests(&pending_requests_for_reader);
+        drain_terminal_waiters(&terminal_waiters_for_reader);
+        drain_progress_waiters(&progress_waiters_for_reader);
         // rx クローズ = プロセス終了
         let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
         if was_idle {

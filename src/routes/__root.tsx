@@ -15,30 +15,24 @@ export const Route = createRootRoute({
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <nav className="border-border border-b bg-card px-4 py-3">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
-          <div className="flex items-center gap-4">
+          <span className="font-semibold text-foreground text-sm">
+            Tooth Calibrator
+          </span>
+          <div className="flex items-center gap-2">
             <Link
-              to="/"
-              className="font-semibold text-foreground text-sm transition-colors hover:text-primary"
-              activeProps={{ className: 'text-primary' }}
-              activeOptions={{ exact: true }}
+              to="/camera"
+              className="rounded-md px-2 py-1 text-muted-foreground text-sm hover:bg-accent hover:text-accent-foreground"
             >
-              Tooth Calibrator
+              カメラ
             </Link>
             <Link
-              to="/scan"
-              className="text-muted-foreground text-sm transition-colors hover:text-foreground"
-              activeProps={{ className: 'font-medium text-foreground' }}
+              to="/settings"
+              aria-label="設定"
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
             >
-              スキャン
+              <span className="icon-gear" />
             </Link>
           </div>
-          <Link
-            to="/settings"
-            aria-label="設定"
-            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-          >
-            <span className="icon-gear" />
-          </Link>
         </div>
       </nav>
       <main className="flex-1">

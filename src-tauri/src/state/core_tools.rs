@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use tauri::async_runtime::Sender;
 use tauri_plugin_shell::process::CommandChild;
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::{mpsc, oneshot, Notify};
 
 use crate::errors::AppError;
 
@@ -41,6 +41,9 @@ pub struct CoreToolsState {
     pub child: Arc<Mutex<Option<CommandChild>>>,
     pub terminated: Arc<Notify>,
     pub pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+    pub terminal_waiters: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+    pub progress_waiters: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<serde_json::Value>>>>,
+    pub live_scan_lock: Arc<tokio::sync::Mutex<()>>,
     next_request_id: Arc<AtomicU64>,
 }
 
@@ -60,6 +63,38 @@ impl CoreToolsState {
 
     pub fn resolve_response(&self, response: &serde_json::Value) -> bool {
         resolve_pending_response(&self.pending_requests, response)
+    }
+
+    pub fn register_terminal_waiter(&self, scan_id: &str) -> oneshot::Receiver<serde_json::Value> {
+        let (sender, receiver) = oneshot::channel();
+        self.terminal_waiters
+            .lock()
+            .expect("core-tools terminal waiters mutex poisoned")
+            .insert(scan_id.to_string(), sender);
+        receiver
+    }
+
+    pub fn resolve_terminal_event(&self, event: &serde_json::Value) -> bool {
+        resolve_terminal_event(&self.terminal_waiters, event)
+    }
+
+    pub fn register_progress_waiter(
+        &self,
+        scan_id: &str,
+    ) -> mpsc::UnboundedReceiver<serde_json::Value> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        self.progress_waiters
+            .lock()
+            .expect("core-tools progress waiters mutex poisoned")
+            .insert(scan_id.to_string(), sender);
+        receiver
+    }
+
+    pub fn remove_progress_waiter(&self, scan_id: &str) {
+        self.progress_waiters
+            .lock()
+            .expect("core-tools progress waiters mutex poisoned")
+            .remove(scan_id);
     }
 
     /// Send a JSON command with a Rust-owned id and await its matching response.
@@ -162,6 +197,68 @@ pub(crate) fn drain_pending_requests(
         .clear();
 }
 
+pub(crate) fn drain_terminal_waiters(
+    waiters: &Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+) {
+    waiters
+        .lock()
+        .expect("core-tools terminal waiters mutex poisoned")
+        .clear();
+}
+
+pub(crate) fn drain_progress_waiters(
+    waiters: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<serde_json::Value>>>>,
+) {
+    waiters
+        .lock()
+        .expect("core-tools progress waiters mutex poisoned")
+        .clear();
+}
+
+pub(crate) fn resolve_terminal_event(
+    waiters: &Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+    event: &serde_json::Value,
+) -> bool {
+    let terminal = matches!(
+        event.get("event").and_then(serde_json::Value::as_str),
+        Some("stereo_scan_completed" | "stereo_scan_failed")
+    );
+    let Some(scan_id) = event.get("scan_id").and_then(response_id) else {
+        return false;
+    };
+    if !terminal {
+        return false;
+    }
+    waiters
+        .lock()
+        .expect("core-tools terminal waiters mutex poisoned")
+        .remove(&scan_id)
+        .is_some_and(|sender| sender.send(event.clone()).is_ok())
+}
+
+pub(crate) fn resolve_progress_event(
+    waiters: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<serde_json::Value>>>>,
+    event: &serde_json::Value,
+) -> bool {
+    let Some(event_name) = event.get("event").and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    if !matches!(
+        event_name,
+        "stereo_scan_scanning" | "stereo_scan_decoding" | "stereo_scan_reconstructing"
+    ) {
+        return false;
+    }
+    let Some(scan_id) = event.get("scan_id").and_then(response_id) else {
+        return false;
+    };
+    waiters
+        .lock()
+        .expect("core-tools progress waiters mutex poisoned")
+        .get(&scan_id)
+        .is_some_and(|sender| sender.send(event.clone()).is_ok())
+}
+
 impl Default for CoreToolsState {
     fn default() -> Self {
         Self {
@@ -170,6 +267,9 @@ impl Default for CoreToolsState {
             child: Arc::new(Mutex::new(None)),
             terminated: Arc::new(Notify::new()),
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
+            terminal_waiters: Arc::new(Mutex::new(HashMap::new())),
+            progress_waiters: Arc::new(Mutex::new(HashMap::new())),
+            live_scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             next_request_id: Arc::new(AtomicU64::new(1)),
         }
     }
@@ -308,5 +408,38 @@ mod tests {
             .lock()
             .expect("pending requests")
             .is_empty());
+    }
+
+    #[test]
+    fn correlates_only_stereo_scan_terminal_events() {
+        let state = CoreToolsState::default();
+        let receiver = state.register_terminal_waiter("scan-1");
+        assert!(!state.resolve_terminal_event(&serde_json::json!({
+            "event": "scan_completed",
+            "scan_id": "scan-1"
+        })));
+        assert!(state.resolve_terminal_event(&serde_json::json!({
+            "event": "stereo_scan_failed",
+            "scan_id": "scan-1",
+            "error_message": "capture failed"
+        })));
+        let event = receiver.blocking_recv().expect("terminal event");
+        assert_eq!(event["event"], "stereo_scan_failed");
+    }
+
+    #[test]
+    fn forwards_only_active_stereo_scan_progress() {
+        let state = CoreToolsState::default();
+        let mut receiver = state.register_progress_waiter("scan-1");
+        assert!(resolve_progress_event(
+            &state.progress_waiters,
+            &serde_json::json!({"event":"stereo_scan_decoding","scan_id":"scan-1"})
+        ));
+        assert!(!resolve_progress_event(
+            &state.progress_waiters,
+            &serde_json::json!({"event":"stereo_scan_decoding","scan_id":"other"})
+        ));
+        let event = receiver.try_recv().expect("progress event");
+        assert_eq!(event["event"], "stereo_scan_decoding");
     }
 }

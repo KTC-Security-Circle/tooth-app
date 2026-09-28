@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { invoke } from '@tauri-apps/api/core'
 import CameraSelectSection from '@/components/app/CameraSelectSection'
+import ScanMonitorSelectSection from '@/components/app/ScanMonitorSelectSection'
 import Button from '@/components/ui/Button'
 import StatusBanner from '@/components/ui/StatusBanner'
 import type { CameraInfo } from '@/hooks/useSettings'
@@ -41,6 +42,7 @@ function Setup() {
   const { settings, status, save, updateField } = useSettings({
     settings: {
       cameraLeft: '',
+      monitorIndex: null,
       cameraRight: '',
       fps: 30,
       developerMode: false,
@@ -76,6 +78,11 @@ function Setup() {
           onCameraRightChange={(value) => {
             updateField('cameraRight', value)
           }}
+        />
+
+        <ScanMonitorSelectSection
+          monitorIndex={settings.monitorIndex}
+          onMonitorIndexChange={(value) => updateField('monitorIndex', value)}
         />
 
         <div className="flex justify-center">

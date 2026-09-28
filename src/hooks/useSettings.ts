@@ -6,6 +6,7 @@ import type { Status } from '@/components/ui/StatusBanner'
 import { extractErrorMessage } from '@/lib/extractError'
 
 export type Settings = {
+  monitorIndex?: number | null
   cameraLeft: string
   cameraRight: string
   fps: number
@@ -30,6 +31,7 @@ export type CameraInfo = {
 }
 
 export const defaultSettings: Settings = {
+  monitorIndex: null,
   cameraLeft: '',
   cameraRight: '',
   fps: 30,
@@ -75,6 +77,7 @@ export function useSettings({
     setStatus({ type: 'loading', message: '保存中...' })
     try {
       const patch: SettingsPatch = {
+        monitorIndex: settings.monitorIndex ?? null,
         cameraLeft: settings.cameraLeft,
         cameraRight: settings.cameraRight,
         fps: settings.fps,

@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import CameraSelectSection from '@/components/app/CameraSelectSection'
+import ScanMonitorSelectSection from '@/components/app/ScanMonitorSelectSection'
 import SectionPanel from '@/components/app/SectionPanel'
 import Button from '@/components/ui/Button'
 import FormField from '@/components/ui/FormField'
@@ -122,6 +123,11 @@ function SettingsPage() {
           onCameraRightChange={(value) => {
             updateField('cameraRight', value)
           }}
+        />
+
+        <ScanMonitorSelectSection
+          monitorIndex={settings.monitorIndex}
+          onMonitorIndexChange={(value) => updateField('monitorIndex', value)}
         />
 
         <SectionPanel heading="撮影設定">

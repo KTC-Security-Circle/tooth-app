@@ -3,7 +3,9 @@ use std::time::Duration;
 use tauri::State;
 
 use crate::errors::AppError;
-use crate::state::core_tools::{CoreToolsState, CoreToolsStatus};
+use crate::state::core_tools::{
+    drain_progress_waiters, drain_terminal_waiters, CoreToolsState, CoreToolsStatus,
+};
 
 /// core-tools を停止する。
 ///
@@ -48,6 +50,8 @@ pub async fn stop_core_tools(state: State<'_, CoreToolsState>) -> Result<(), App
         .cmd_tx
         .lock()
         .expect("core-tools cmd_tx mutex poisoned") = None;
+    drain_terminal_waiters(&state.terminal_waiters);
+    drain_progress_waiters(&state.progress_waiters);
 
     // 5. status を Idle に遷移
     *state

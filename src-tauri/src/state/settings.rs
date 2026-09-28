@@ -25,6 +25,8 @@ pub struct Settings {
     #[serde(default)]
     pub data_root: String,
     #[serde(default)]
+    pub monitor_index: Option<u32>,
+    #[serde(default)]
     #[serde(alias = "selectedCalibrationProfile")]
     pub calibration_profile_path: String,
     #[serde(default)]
@@ -78,6 +80,8 @@ pub struct SettingsPatch {
     #[serde(default)]
     pub matching_ransac_iterations: Option<u64>,
     pub data_root: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_monitor_patch")]
+    pub monitor_index: Option<Option<u32>>,
     pub calibration_profile_path: Option<String>,
     pub stereo_calibration_file: Option<String>,
     pub projector_id: Option<String>,
@@ -101,6 +105,15 @@ where
     D: serde::Deserializer<'de>,
 {
     Ok(Some(Option::<f64>::deserialize(deserializer)?))
+}
+
+fn deserialize_nullable_monitor_patch<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<u32>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<u32>::deserialize(deserializer)?))
 }
 
 impl SettingsPatch {
@@ -144,6 +157,9 @@ impl SettingsPatch {
         if let Some(v) = self.projector_surface_width {
             settings.projector_surface_width = v;
         }
+        if let Some(v) = self.monitor_index {
+            settings.monitor_index = v;
+        }
         if let Some(v) = self.projector_surface_height {
             settings.projector_surface_height = v;
         }
@@ -185,6 +201,7 @@ impl Default for Settings {
             matching_voxel_size: default_matching_voxel_size(),
             matching_ransac_iterations: default_matching_ransac_iterations(),
             data_root: String::new(),
+            monitor_index: None,
             calibration_profile_path: String::new(),
             stereo_calibration_file: String::new(),
             projector_id: String::new(),
@@ -348,6 +365,7 @@ mod tests {
         )
         .expect("legacy settings should remain readable");
         assert!(settings.data_root.is_empty());
+        assert!(settings.monitor_index.is_none());
         assert_eq!(settings.decode_threshold, 128);
         assert!(settings.minimum_fitness.is_none());
         assert!(settings.maximum_rmse.is_none());
@@ -396,6 +414,25 @@ mod tests {
 
         assert_eq!(settings.matching_source_path, "/custom/source.ply");
         assert_eq!(settings.matching_target_path, "/custom/target.ply");
+    }
+
+    #[test]
+    fn applies_monitor_index_patch() {
+        let patch: SettingsPatch = serde_json::from_value(serde_json::json!({
+            "monitorIndex": 2
+        }))
+        .expect("monitor patch should deserialize");
+        let mut settings = Settings::default();
+        patch.apply_to(&mut settings);
+        assert_eq!(settings.monitor_index, Some(2));
+
+        let omitted: SettingsPatch = serde_json::from_str("{}").expect("omitted patch");
+        omitted.apply_to(&mut settings);
+        assert_eq!(settings.monitor_index, Some(2));
+        let clear: SettingsPatch =
+            serde_json::from_str(r#"{"monitorIndex":null}"#).expect("clear patch");
+        clear.apply_to(&mut settings);
+        assert_eq!(settings.monitor_index, None);
     }
 
     #[test]

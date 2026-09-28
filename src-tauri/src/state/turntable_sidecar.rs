@@ -93,9 +93,12 @@ pub async fn run(
             "turntable event stream closed before termination".to_string(),
         ))
     };
-    let result = tokio::time::timeout(timeout, wait)
-        .await
-        .map_err(|_| AppError::Internal(format!("turntable timed out after {timeout:?}")))?;
+    let result = match tokio::time::timeout(timeout, wait).await {
+        Ok(result) => result,
+        Err(_) => Err(AppError::Internal(format!(
+            "turntable timed out after {timeout:?}"
+        ))),
+    };
     if track {
         if let Some(child) = state.take_active_child()? {
             let _ = child.kill();
