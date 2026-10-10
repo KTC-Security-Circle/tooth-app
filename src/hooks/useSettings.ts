@@ -6,6 +6,7 @@ import type { Status } from '@/components/ui/StatusBanner'
 import { extractErrorMessage } from '@/lib/extractError'
 
 export type Settings = {
+  monitorIndex?: number | null
   cameraLeft: string
   cameraRight: string
   fps: number
@@ -13,10 +14,14 @@ export type Settings = {
   calibrationImagePath?: string
   matchingSourcePath?: string
   matchingTargetPath?: string
-  matchingMode?: string
   matchingVoxelSize?: number
   matchingRansacIterations?: number
   projectorMonitorIndex?: number
+  turntablePort: string
+  turntableSpeed: number
+  turntableAcceleration: number
+  turntableSettleTimeMs: number
+  turntableMoveTimeoutMs: number
 }
 
 export type SettingsPatch = Omit<Partial<Settings>, 'projectorMonitorIndex'> & {
@@ -29,15 +34,20 @@ export type CameraInfo = {
 }
 
 export const defaultSettings: Settings = {
+  monitorIndex: null,
   cameraLeft: '',
   cameraRight: '',
   fps: 30,
   developerMode: false,
   matchingSourcePath: '',
   matchingTargetPath: '',
-  matchingMode: 'matching',
   matchingVoxelSize: 0.25,
   matchingRansacIterations: 30,
+  turntablePort: '',
+  turntableSpeed: 0,
+  turntableAcceleration: 0,
+  turntableSettleTimeMs: 0,
+  turntableMoveTimeoutMs: 0,
 }
 
 interface UseSettingsArgs {
@@ -70,9 +80,16 @@ export function useSettings({
     setStatus({ type: 'loading', message: '保存中...' })
     try {
       const patch: SettingsPatch = {
+        monitorIndex: settings.monitorIndex ?? null,
         cameraLeft: settings.cameraLeft,
         cameraRight: settings.cameraRight,
         fps: settings.fps,
+        turntablePort: settings.turntablePort,
+        turntableSpeed: settings.turntableSpeed,
+        turntableAcceleration: settings.turntableAcceleration,
+        turntableSettleTimeMs: settings.turntableSettleTimeMs,
+        turntableMoveTimeoutMs: settings.turntableMoveTimeoutMs,
+        projectorMonitorIndex: settings.projectorMonitorIndex ?? null,
       }
       if (settings.calibrationImagePath !== undefined) {
         patch.calibrationImagePath = settings.calibrationImagePath
@@ -83,16 +100,12 @@ export function useSettings({
       if (settings.matchingTargetPath !== undefined) {
         patch.matchingTargetPath = settings.matchingTargetPath
       }
-      if (settings.matchingMode !== undefined) {
-        patch.matchingMode = settings.matchingMode
-      }
       if (settings.matchingVoxelSize !== undefined) {
         patch.matchingVoxelSize = settings.matchingVoxelSize
       }
       if (settings.matchingRansacIterations !== undefined) {
         patch.matchingRansacIterations = settings.matchingRansacIterations
       }
-      patch.projectorMonitorIndex = settings.projectorMonitorIndex ?? null
       await invoke<void>('update_settings', { patch })
       setStatus({ type: 'success', message: '設定を保存しました' })
       return true
@@ -213,7 +226,6 @@ export function useSettings({
         calibrationImagePath: undefined,
         matchingSourcePath: undefined,
         matchingTargetPath: undefined,
-        matchingMode: undefined,
         matchingVoxelSize: undefined,
         matchingRansacIterations: undefined,
       }))

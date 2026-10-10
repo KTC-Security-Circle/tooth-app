@@ -18,13 +18,21 @@ export const Route = createRootRoute({
           <span className="font-semibold text-foreground text-sm">
             Tooth Calibrator
           </span>
-          <Link
-            to="/settings"
-            aria-label="設定"
-            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-          >
-            <span className="icon-gear" />
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/camera"
+              className="rounded-md px-2 py-1 text-muted-foreground text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              カメラ
+            </Link>
+            <Link
+              to="/settings"
+              aria-label="設定"
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            >
+              <span className="icon-gear" />
+            </Link>
+          </div>
         </div>
       </nav>
       <main className="flex-1">
