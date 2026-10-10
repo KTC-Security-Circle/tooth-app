@@ -27,3 +27,11 @@ pub fn calibration_dir_path(app: &tauri::AppHandle) -> anyhow::Result<PathBuf> {
 
     Ok(calib_dir)
 }
+
+pub fn calibration_profile_path(app: &tauri::AppHandle) -> anyhow::Result<PathBuf> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .context("Failed to get app config dir")?
+        .join("calibration_profile.json"))
+}

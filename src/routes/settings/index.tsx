@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import CameraSelectSection from '@/components/app/CameraSelectSection'
+import ScanMonitorSelectSection from '@/components/app/ScanMonitorSelectSection'
 import SectionPanel from '@/components/app/SectionPanel'
 import Button from '@/components/ui/Button'
 import FormField from '@/components/ui/FormField'
@@ -124,6 +125,11 @@ function SettingsPage() {
           }}
         />
 
+        <ScanMonitorSelectSection
+          monitorIndex={settings.monitorIndex}
+          onMonitorIndexChange={(value) => updateField('monitorIndex', value)}
+        />
+
         <SectionPanel heading="撮影設定">
           <FormField>
             <FormField.Label htmlFor="fps">FPS</FormField.Label>
@@ -143,6 +149,102 @@ function SettingsPage() {
               ))}
             </FormField.Select>
           </FormField>
+        </SectionPanel>
+
+        <SectionPanel heading="ターンテーブル設定">
+          <div className="space-y-5">
+            <FormField labelWidth="200px">
+              <FormField.Label htmlFor="turntable-port">ポート</FormField.Label>
+              <TextInput
+                className="sm:max-w-64"
+                id="turntable-port"
+                type="text"
+                value={settings.turntablePort}
+                onChange={(e) => {
+                  updateField('turntablePort', e.currentTarget.value)
+                }}
+              />
+            </FormField>
+
+            <FormField labelWidth="200px">
+              <FormField.Label htmlFor="turntable-speed">速度</FormField.Label>
+              <TextInput
+                className="sm:max-w-40"
+                id="turntable-speed"
+                min={0}
+                step={0.01}
+                type="number"
+                value={settings.turntableSpeed}
+                onChange={(e) => {
+                  const value = Number.parseFloat(e.currentTarget.value)
+                  updateField('turntableSpeed', Number.isNaN(value) ? 0 : value)
+                }}
+              />
+            </FormField>
+
+            <FormField labelWidth="200px">
+              <FormField.Label htmlFor="turntable-acceleration">
+                加速度
+              </FormField.Label>
+              <TextInput
+                className="sm:max-w-40"
+                id="turntable-acceleration"
+                min={0}
+                step={0.01}
+                type="number"
+                value={settings.turntableAcceleration}
+                onChange={(e) => {
+                  const value = Number.parseFloat(e.currentTarget.value)
+                  updateField(
+                    'turntableAcceleration',
+                    Number.isNaN(value) ? 0 : value,
+                  )
+                }}
+              />
+            </FormField>
+
+            <FormField labelWidth="200px">
+              <FormField.Label htmlFor="turntable-settle-time">
+                安定待機時間 (ms)
+              </FormField.Label>
+              <TextInput
+                className="sm:max-w-40"
+                id="turntable-settle-time"
+                min={0}
+                step={1}
+                type="number"
+                value={settings.turntableSettleTimeMs}
+                onChange={(e) => {
+                  const value = Number.parseInt(e.currentTarget.value, 10)
+                  updateField(
+                    'turntableSettleTimeMs',
+                    Number.isNaN(value) ? 0 : value,
+                  )
+                }}
+              />
+            </FormField>
+
+            <FormField labelWidth="200px">
+              <FormField.Label htmlFor="turntable-move-timeout">
+                移動タイムアウト (ms)
+              </FormField.Label>
+              <TextInput
+                className="sm:max-w-40"
+                id="turntable-move-timeout"
+                min={0}
+                step={1}
+                type="number"
+                value={settings.turntableMoveTimeoutMs}
+                onChange={(e) => {
+                  const value = Number.parseInt(e.currentTarget.value, 10)
+                  updateField(
+                    'turntableMoveTimeoutMs',
+                    Number.isNaN(value) ? 0 : value,
+                  )
+                }}
+              />
+            </FormField>
+          </div>
         </SectionPanel>
 
         <div className="flex justify-center">
@@ -209,30 +311,6 @@ function SettingsPage() {
                     参照...
                   </Button>
                 </FormField.Control>
-              </FormField>
-
-              <FormField labelWidth="200px">
-                <FormField.Label htmlFor="matching-mode">
-                  マッチングモード
-                </FormField.Label>
-                <FormField.Select
-                  className="sm:max-w-40"
-                  id="matching-mode"
-                  value={settings.matchingMode ?? 'matching'}
-                  onChange={(e) => {
-                    updateField('matchingMode', e.currentTarget.value)
-                  }}
-                >
-                  <FormField.Select.Option value="matching">
-                    マッチング
-                  </FormField.Select.Option>
-                  <FormField.Select.Option value="ransac">
-                    RANSAC
-                  </FormField.Select.Option>
-                  <FormField.Select.Option value="icp">
-                    ICP
-                  </FormField.Select.Option>
-                </FormField.Select>
               </FormField>
 
               <FormField labelWidth="200px">
