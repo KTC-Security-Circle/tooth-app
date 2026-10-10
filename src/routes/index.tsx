@@ -1,9 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { useSyncExternalStore } from 'react'
 import PageHeader from '@/components/app/PageHeader'
 import SectionPanel from '@/components/app/SectionPanel'
 import StreamPreview from '@/components/app/StreamPreview'
+import Button from '@/components/ui/Button'
 import StatusBanner from '@/components/ui/StatusBanner'
 import { useCoreToolsStream } from '@/hooks/useCoreToolsStream'
+import { cn } from '@/lib/cn'
+import {
+  getMatchingStatus,
+  runMatching,
+  subscribeMatching,
+} from '@/lib/matching'
 
 export const Route = createFileRoute('/')({
   component: Index,
@@ -12,6 +20,10 @@ export const Route = createFileRoute('/')({
 function Index() {
   const { status, streamState, streamActive, startStreams, stopStreams } =
     useCoreToolsStream()
+  const matchingStatus = useSyncExternalStore(
+    subscribeMatching,
+    getMatchingStatus,
+  )
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -26,9 +38,46 @@ function Index() {
         <StreamPreview
           streamState={streamState}
           streamActive={streamActive}
-          startStreams={startStreams}
-          stopStreams={stopStreams}
-          isLoading={status.type === 'loading'}
+          startStreams={async (leftCameraId, rightCameraId) => {
+            if (getMatchingStatus().type !== 'loading') {
+              await startStreams(leftCameraId, rightCameraId)
+            }
+          }}
+          stopStreams={async () => {
+            if (getMatchingStatus().type !== 'loading') {
+              await stopStreams()
+            }
+          }}
+          isLoading={
+            status.type === 'loading' || matchingStatus.type === 'loading'
+          }
+          beforeControls={
+            <div className="flex flex-col items-center gap-2">
+              <Button
+                disabled={
+                  matchingStatus.type === 'loading' ||
+                  streamState === 'starting' ||
+                  streamState === 'stopping'
+                }
+                onClick={() => void runMatching()}
+              >
+                {matchingStatus.type === 'loading'
+                  ? 'スキャン・照合中...'
+                  : 'マッチング開始'}
+              </Button>
+              <p
+                role="status"
+                aria-live="polite"
+                className={cn(
+                  'break-words text-center text-muted-foreground text-sm',
+                  matchingStatus.type === 'error' && 'text-destructive',
+                  matchingStatus.type === 'success' && 'text-success',
+                )}
+              >
+                {matchingStatus.type !== 'idle' && matchingStatus.message}
+              </p>
+            </div>
+          }
         />
       </SectionPanel>
     </div>

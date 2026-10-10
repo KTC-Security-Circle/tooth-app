@@ -23,6 +23,8 @@ pub struct Settings {
     pub matching_voxel_size: f64,
     #[serde(default = "default_matching_ransac_iterations")]
     pub matching_ransac_iterations: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projector_monitor_index: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -48,6 +50,8 @@ pub struct SettingsPatch {
     pub matching_voxel_size: Option<f64>,
     #[serde(default)]
     pub matching_ransac_iterations: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub projector_monitor_index: Option<Option<u32>>,
 }
 
 impl SettingsPatch {
@@ -82,6 +86,9 @@ impl SettingsPatch {
         if let Some(v) = self.matching_ransac_iterations {
             settings.matching_ransac_iterations = v;
         }
+        if let Some(v) = self.projector_monitor_index {
+            settings.projector_monitor_index = v;
+        }
         settings.derive_matching_paths();
     }
 }
@@ -99,6 +106,7 @@ impl Default for Settings {
             matching_mode: default_matching_mode(),
             matching_voxel_size: default_matching_voxel_size(),
             matching_ransac_iterations: default_matching_ransac_iterations(),
+            projector_monitor_index: None,
         }
     }
 }
@@ -113,6 +121,14 @@ const fn default_matching_voxel_size() -> f64 {
 
 const fn default_matching_ransac_iterations() -> u64 {
     30
+}
+
+fn deserialize_optional_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 impl Settings {
@@ -231,7 +247,34 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::Settings;
+    use super::{Settings, SettingsPatch};
+
+    #[test]
+    fn projector_monitor_defaults_to_unset_and_legacy_json_loads() {
+        let settings = Settings {
+            calibration_image_path: "/calibration/images".to_string(),
+            ..Settings::default()
+        };
+        assert_eq!(settings.projector_monitor_index, None);
+
+        let mut legacy = serde_json::to_value(settings).expect("settings serialize");
+        legacy
+            .as_object_mut()
+            .expect("settings object")
+            .remove("projectorMonitorIndex");
+        let restored: Settings =
+            serde_json::from_value(legacy).expect("legacy settings deserialize");
+        assert_eq!(restored.projector_monitor_index, None);
+
+        let clear: SettingsPatch = serde_json::from_str(r#"{"projectorMonitorIndex":null}"#)
+            .expect("nullable monitor patch deserializes");
+        let mut selected = Settings {
+            projector_monitor_index: Some(3),
+            ..Settings::default()
+        };
+        clear.apply_to(&mut selected);
+        assert_eq!(selected.projector_monitor_index, None);
+    }
 
     #[test]
     fn derives_empty_matching_paths_from_calibration_directory_parent() {

@@ -8,6 +8,7 @@ rust = "1.96.0"
 [env]
 LIBCLANG_PATH = "{{env.HOME}}/.local/share/mise/installs/conda-libclang/22.1.8/lib"
 OpenCV_DIR = "{{env.HOME}}/.local/opencv/4.10.0-static/lib/cmake/opencv4"
+NO_STRIP=true
 
 [tasks.setup]
 description = "プロジェクトのセットアップ (OpenCV 静的ビルド + submodule 初期化 + 依存インストール)"

@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tauri::{async_runtime, Emitter};
@@ -35,20 +36,20 @@ pub async fn start_core_tools_inner(
     app: &tauri::AppHandle,
     state: &CoreToolsState,
 ) -> Result<(), AppError> {
-    // 二重起動防止
-    {
-        let status = *lock_status(&state.status);
+    // 二重起動防止と世代更新をstatus lock内で行い、古いreader/writerの失敗通知を隔離する。
+    let generation = {
+        let mut status = lock_status(&state.status);
         if matches!(
-            status,
+            *status,
             CoreToolsStatus::Starting | CoreToolsStatus::Ready | CoreToolsStatus::Running
         ) {
             return Err(AppError::CoreTools(
                 "core-tools is already running".to_string(),
             ));
         }
-    }
-
-    *lock_status(&state.status) = CoreToolsStatus::Starting;
+        *status = CoreToolsStatus::Starting;
+        state.generation.fetch_add(1, Ordering::AcqRel) + 1
+    };
 
     let sidecar_result = app
         .shell()
@@ -63,9 +64,7 @@ pub async fn start_core_tools_inner(
     let (mut rx, child) = match sidecar_result {
         Ok(pair) => pair,
         Err(e) => {
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
-            *lock_child(&state.child) = None;
-            *lock_cmd_tx(&state.cmd_tx) = None;
+            state.mark_unavailable(generation, CoreToolsStatus::Failed);
             return Err(e);
         }
     };
@@ -80,30 +79,50 @@ pub async fn start_core_tools_inner(
 
     // Writer タスク: stdin への書き込みを直列化する。
     let child_for_writer = state.child.clone();
+    let app_for_writer = app.clone();
+    let state_for_writer = state.clone();
     async_runtime::spawn(async move {
         while let Some(json) = cmd_rx.recv().await {
-            let mut guard = lock_child(&child_for_writer);
-            match guard.as_mut() {
-                Some(child) => {
-                    let mut payload = json.into_bytes();
-                    payload.push(b'\n');
-                    if child.write(&payload).is_err() {
-                        // stdin が閉じた場合は writer を停止
-                        break;
+            if !state_for_writer.is_generation(generation) {
+                break;
+            }
+            let write_failed = {
+                let mut guard = lock_child(&child_for_writer);
+                match guard.as_mut() {
+                    Some(child) => {
+                        let mut payload = json.into_bytes();
+                        payload.push(b'\n');
+                        child.write(&payload).is_err()
                     }
+                    None => true,
                 }
-                None => break,
+            };
+            if write_failed {
+                if state_for_writer.mark_unavailable(generation, CoreToolsStatus::Disconnected) {
+                    let _ = app_for_writer.emit(
+                        "core-tools:event",
+                        serde_json::json!({
+                            "event": "core_tools_terminated",
+                            "generation": generation,
+                            "message": "stdin write failed"
+                        }),
+                    );
+                }
+                break;
             }
         }
     });
 
     // Reader タスク: stdout/stderr を処理しイベント/レスポンスを emit する。
     let app_for_reader = app.clone();
-    let status_for_reader = state.status.clone();
-    let terminated_for_reader = state.terminated.clone();
+    let state_for_reader = state.clone();
     async_runtime::spawn(async move {
         let mut ready_signalled = false;
+        let mut unavailable = false;
         while let Some(event) = rx.recv().await {
+            if !state_for_reader.is_generation(generation) {
+                break;
+            }
             match event {
                 CommandEvent::Stdout(bytes) => {
                     let line = String::from_utf8_lossy(&bytes);
@@ -118,9 +137,13 @@ pub async fn start_core_tools_inner(
                                     && v.get("event").and_then(serde_json::Value::as_str)
                                         == Some("ready")
                                 {
-                                    ready_signalled = true;
-                                    *lock_status(&status_for_reader) = CoreToolsStatus::Ready;
-                                    let _ = outcome_tx.send(Ok(())).await;
+                                    if state_for_reader.mark_ready(generation) {
+                                        ready_signalled = true;
+                                        let _ = outcome_tx.send(Ok(())).await;
+                                    } else {
+                                        unavailable = true;
+                                        break;
+                                    }
                                 }
                                 let _ = app_for_reader.emit("core-tools:event", &v);
                             } else {
@@ -140,13 +163,27 @@ pub async fn start_core_tools_inner(
                 }
                 CommandEvent::Error(msg) => {
                     log::error!("core-tools command error: {msg}");
-                    if !ready_signalled {
-                        ready_signalled = true;
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
-                        let _ = outcome_tx.send(Err(msg)).await;
+                    let failure_status = if ready_signalled {
+                        CoreToolsStatus::Disconnected
                     } else {
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
+                        CoreToolsStatus::Failed
+                    };
+                    unavailable = state_for_reader.mark_unavailable(generation, failure_status);
+                    if unavailable {
+                        let _ = app_for_reader.emit(
+                            "core-tools:event",
+                            serde_json::json!({
+                                "event": "core_tools_terminated",
+                                "generation": generation,
+                                "message": msg
+                            }),
+                        );
                     }
+                    if unavailable && !ready_signalled {
+                        ready_signalled = true;
+                        let _ = outcome_tx.send(Err(msg)).await;
+                    }
+                    break;
                 }
                 CommandEvent::Terminated(payload) => {
                     log::warn!(
@@ -154,24 +191,31 @@ pub async fn start_core_tools_inner(
                         payload.code,
                         payload.signal
                     );
-                    terminated_for_reader.notify_one();
-                    // ガードを await の前に確実に落とす (Send 要求)
-                    let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
-                    if was_idle {
-                        // stop 側で既に Idle 化済み
-                        break;
+                    let failure_status = if ready_signalled {
+                        CoreToolsStatus::Disconnected
+                    } else {
+                        CoreToolsStatus::Failed
+                    };
+                    unavailable = state_for_reader.mark_unavailable(generation, failure_status);
+                    if unavailable {
+                        let _ = app_for_reader.emit(
+                            "core-tools:event",
+                            serde_json::json!({
+                                "event": "core_tools_terminated",
+                                "generation": generation,
+                                "code": payload.code,
+                                "signal": payload.signal,
+                            }),
+                        );
                     }
-                    if !ready_signalled {
+                    if !ready_signalled && unavailable {
                         ready_signalled = true;
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
                         let _ = outcome_tx
                             .send(Err(format!(
                                 "tooth-backend terminated (code={:?})",
                                 payload.code
                             )))
                             .await;
-                    } else {
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Disconnected;
                     }
                     break;
                 }
@@ -180,34 +224,48 @@ pub async fn start_core_tools_inner(
                 }
             }
         }
-        // rx クローズ = プロセス終了
-        let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
-        if was_idle {
+        if unavailable || !state_for_reader.is_generation(generation) {
             return;
         }
-        if !ready_signalled {
-            *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
+        // rx クローズ = プロセス終了
+        let failure_status = if ready_signalled {
+            CoreToolsStatus::Disconnected
+        } else {
+            CoreToolsStatus::Failed
+        };
+        let invalidated = state_for_reader.mark_unavailable(generation, failure_status);
+        if invalidated {
+            let _ = app_for_reader.emit(
+                "core-tools:event",
+                serde_json::json!({
+                    "event": "core_tools_terminated",
+                    "generation": generation,
+                    "message": "event stream closed"
+                }),
+            );
+        }
+        if invalidated && !ready_signalled {
             let _ = outcome_tx
                 .send(Err("tooth-backend exited without ready".to_string()))
                 .await;
-        } else {
-            *lock_status(&status_for_reader) = CoreToolsStatus::Disconnected;
         }
     });
 
     // ready 待ち (10s タイムアウト)
     match tokio::time::timeout(READY_TIMEOUT, outcome_rx.recv()).await {
         Ok(Some(Ok(()))) => {
-            *lock_status(&state.status) = CoreToolsStatus::Running;
-            Ok(())
+            if state.mark_running(generation) {
+                Ok(())
+            } else {
+                Err(AppError::CoreTools(
+                    "core-tools exited before becoming available".to_string(),
+                ))
+            }
         }
-        Ok(Some(Err(msg))) => {
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
-            Err(AppError::CoreTools(msg))
-        }
+        Ok(Some(Err(msg))) => Err(AppError::CoreTools(msg)),
         Ok(None) => {
             // outcome が送られずチャネルが閉じた
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
+            state.mark_unavailable(generation, CoreToolsStatus::Failed);
             Err(AppError::CoreTools(
                 "tooth-backend closed before ready".to_string(),
             ))
@@ -215,11 +273,16 @@ pub async fn start_core_tools_inner(
         Err(_) => {
             // タイムアウト: プロセスを kill してクリーンアップ
             log::error!("core-tools: ready timeout after {READY_TIMEOUT:?}");
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
-            if let Some(child) = lock_child(&state.child).take() {
-                let _ = child.kill();
+            if state.mark_unavailable(generation, CoreToolsStatus::Failed) {
+                let _ = app.emit(
+                    "core-tools:event",
+                    serde_json::json!({
+                        "event": "core_tools_terminated",
+                        "generation": generation,
+                        "message": "ready timeout"
+                    }),
+                );
             }
-            *lock_cmd_tx(&state.cmd_tx) = None;
             Err(AppError::CoreTools(
                 "tooth-backend did not become ready within 10s".to_string(),
             ))
