@@ -22,6 +22,8 @@ pub struct Settings {
     pub matching_voxel_size: f64,
     #[serde(default = "default_matching_ransac_iterations")]
     pub matching_ransac_iterations: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projector_monitor_index: Option<u32>,
     #[serde(default)]
     pub data_root: String,
     #[serde(default)]
@@ -79,6 +81,8 @@ pub struct SettingsPatch {
     pub matching_voxel_size: Option<f64>,
     #[serde(default)]
     pub matching_ransac_iterations: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub projector_monitor_index: Option<Option<u32>>,
     pub data_root: Option<String>,
     #[serde(default, deserialize_with = "deserialize_nullable_monitor_patch")]
     pub monitor_index: Option<Option<u32>>,
@@ -105,6 +109,14 @@ where
     D: serde::Deserializer<'de>,
 {
     Ok(Some(Option::<f64>::deserialize(deserializer)?))
+}
+
+fn deserialize_optional_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 fn deserialize_nullable_monitor_patch<'de, D>(
@@ -144,6 +156,9 @@ impl SettingsPatch {
         }
         if let Some(v) = self.matching_ransac_iterations {
             settings.matching_ransac_iterations = v;
+        }
+        if let Some(v) = self.projector_monitor_index {
+            settings.projector_monitor_index = v;
         }
         macro_rules! apply { ($($field:ident),+ $(,)?) => { $(if let Some(v) = &self.$field { settings.$field = v.clone(); })+ }; }
         apply!(
@@ -200,6 +215,7 @@ impl Default for Settings {
             matching_target_path: String::new(),
             matching_voxel_size: default_matching_voxel_size(),
             matching_ransac_iterations: default_matching_ransac_iterations(),
+            projector_monitor_index: None,
             data_root: String::new(),
             monitor_index: None,
             calibration_profile_path: String::new(),
@@ -357,6 +373,19 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{Settings, SettingsPatch};
+
+    #[test]
+    fn projector_monitor_defaults_to_unset_and_null_patch_clears_it() {
+        assert_eq!(Settings::default().projector_monitor_index, None);
+        let mut settings = Settings {
+            projector_monitor_index: Some(3),
+            ..Settings::default()
+        };
+        let clear: SettingsPatch = serde_json::from_str(r#"{"projectorMonitorIndex":null}"#)
+            .expect("nullable projector monitor patch");
+        clear.apply_to(&mut settings);
+        assert_eq!(settings.projector_monitor_index, None);
+    }
 
     #[test]
     fn deserializes_legacy_settings_with_scan_defaults() {

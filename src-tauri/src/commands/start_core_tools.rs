@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tauri::{async_runtime, Emitter};
@@ -6,7 +7,6 @@ use tauri_plugin_shell::ShellExt;
 
 use crate::errors::AppError;
 use crate::state::core_tools::{
-    drain_pending_requests, drain_progress_waiters, drain_terminal_waiters,
     resolve_pending_response, resolve_progress_event, CoreToolsState, CoreToolsStatus,
 };
 
@@ -43,8 +43,12 @@ pub async fn start_core_tools_inner(
             "cannot restart core-tools while a live scan is running".to_string(),
         ));
     }
-    // 二重起動防止
-    {
+    // Serialize start publication with generation-scoped invalidation.
+    let generation = {
+        let _lifecycle = state
+            .lifecycle
+            .lock()
+            .expect("core-tools lifecycle mutex poisoned");
         let status = *lock_status(&state.status);
         if matches!(
             status,
@@ -54,9 +58,9 @@ pub async fn start_core_tools_inner(
                 "core-tools is already running".to_string(),
             ));
         }
-    }
-
-    *lock_status(&state.status) = CoreToolsStatus::Starting;
+        *lock_status(&state.status) = CoreToolsStatus::Starting;
+        state.generation.fetch_add(1, Ordering::AcqRel) + 1
+    };
 
     let sidecar_result = app
         .shell()
@@ -71,36 +75,62 @@ pub async fn start_core_tools_inner(
     let (mut rx, child) = match sidecar_result {
         Ok(pair) => pair,
         Err(e) => {
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
-            *lock_child(&state.child) = None;
-            *lock_cmd_tx(&state.cmd_tx) = None;
+            state.invalidate_generation(generation, CoreToolsStatus::Failed, false);
             return Err(e);
         }
     };
 
-    *lock_child(&state.child) = Some(child);
-
     let (cmd_tx, mut cmd_rx) = async_runtime::channel::<String>(64);
-    *lock_cmd_tx(&state.cmd_tx) = Some(cmd_tx);
+    if !state.publish_transport(
+        generation,
+        cmd_tx,
+        child,
+        |cmd_tx, child| {
+            *lock_child(&state.child) = Some(child);
+            *lock_cmd_tx(&state.cmd_tx) = Some(cmd_tx);
+        },
+        |child| {
+            let _ = child.kill();
+        },
+    ) {
+        return Err(AppError::CoreTools(
+            "core-tools start was superseded before transport installation".to_string(),
+        ));
+    }
 
     // ready / 失敗を start 側に伝える 1-shot チャネル
     let (outcome_tx, mut outcome_rx) = async_runtime::channel::<Result<(), String>>(1);
 
     // Writer タスク: stdin への書き込みを直列化する。
-    let child_for_writer = state.child.clone();
+    let state_for_writer = state.clone();
+    let outcome_for_writer = outcome_tx.clone();
     async_runtime::spawn(async move {
         while let Some(json) = cmd_rx.recv().await {
-            let mut guard = lock_child(&child_for_writer);
-            match guard.as_mut() {
-                Some(child) => {
-                    let mut payload = json.into_bytes();
-                    payload.push(b'\n');
-                    if child.write(&payload).is_err() {
-                        // stdin が閉じた場合は writer を停止
-                        break;
-                    }
+            let mut payload = json.into_bytes();
+            payload.push(b'\n');
+            let write_result =
+                state_for_writer.with_generation_child(generation, |child| child.write(&payload));
+            let Some(write_result) = write_result else {
+                break;
+            };
+            if let Err(error) = write_result {
+                log::error!("core-tools stdin write failed: {error}");
+                let already_terminated = state_for_writer.has_terminated(generation);
+                let starting = *lock_status(&state_for_writer.status) == CoreToolsStatus::Starting;
+                if already_terminated {
+                    return;
                 }
-                None => break,
+                let status = if starting {
+                    CoreToolsStatus::Failed
+                } else {
+                    CoreToolsStatus::Disconnected
+                };
+                if state_for_writer.invalidate_generation(generation, status, true) {
+                    let _ = outcome_for_writer
+                        .send(Err(format!("core-tools stdin write failed: {error}")))
+                        .await;
+                }
+                break;
             }
         }
     });
@@ -108,14 +138,20 @@ pub async fn start_core_tools_inner(
     // Reader タスク: stdout/stderr を処理しイベント/レスポンスを emit する。
     let app_for_reader = app.clone();
     let status_for_reader = state.status.clone();
-    let terminated_for_reader = state.terminated.clone();
+    let state_for_reader = state.clone();
     let pending_requests_for_reader = state.pending_requests.clone();
     let terminal_waiters_for_reader = state.terminal_waiters.clone();
     let progress_waiters_for_reader = state.progress_waiters.clone();
+    let generation_for_reader = state.generation.clone();
     async_runtime::spawn(async move {
         let mut ready_signalled = false;
         let mut stdout = JsonLines::default();
         while let Some(event) = rx.recv().await {
+            if generation_for_reader.load(Ordering::Acquire) != generation
+                || state_for_reader.has_terminated(generation)
+            {
+                return;
+            }
             match event {
                 CommandEvent::Stdout(bytes) => {
                     for line in stdout.push(&bytes) {
@@ -132,9 +168,15 @@ pub async fn start_core_tools_inner(
                                         && v.get("event").and_then(serde_json::Value::as_str)
                                             == Some("ready")
                                     {
-                                        ready_signalled = true;
-                                        *lock_status(&status_for_reader) = CoreToolsStatus::Ready;
-                                        let _ = outcome_tx.send(Ok(())).await;
+                                        if state_for_reader.mark_ready(generation) {
+                                            ready_signalled = true;
+                                            let _ = outcome_tx.send(Ok(())).await;
+                                        } else {
+                                            let _ = outcome_tx
+                                                .send(Err("core-tools transport is unavailable"
+                                                    .to_string()))
+                                                .await;
+                                        }
                                     }
                                     let _ = app_for_reader.emit("core-tools:event", &v);
                                 } else {
@@ -155,15 +197,19 @@ pub async fn start_core_tools_inner(
                 }
                 CommandEvent::Error(msg) => {
                     log::error!("core-tools command error: {msg}");
-                    drain_pending_requests(&pending_requests_for_reader);
-                    drain_terminal_waiters(&terminal_waiters_for_reader);
-                    drain_progress_waiters(&progress_waiters_for_reader);
-                    if !ready_signalled {
-                        ready_signalled = true;
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
-                        let _ = outcome_tx.send(Err(msg)).await;
+                    if generation_for_reader.load(Ordering::Acquire) != generation {
+                        break;
+                    }
+                    let status = if ready_signalled {
+                        CoreToolsStatus::Disconnected
                     } else {
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
+                        CoreToolsStatus::Failed
+                    };
+                    if state_for_reader.invalidate_generation(generation, status, true)
+                        && !ready_signalled
+                    {
+                        ready_signalled = true;
+                        let _ = outcome_tx.send(Err(msg)).await;
                     }
                 }
                 CommandEvent::Terminated(payload) => {
@@ -172,27 +218,31 @@ pub async fn start_core_tools_inner(
                         payload.code,
                         payload.signal
                     );
-                    drain_pending_requests(&pending_requests_for_reader);
-                    drain_terminal_waiters(&terminal_waiters_for_reader);
-                    drain_progress_waiters(&progress_waiters_for_reader);
-                    terminated_for_reader.notify_one();
+                    if generation_for_reader.load(Ordering::Acquire) != generation {
+                        break;
+                    }
                     // ガードを await の前に確実に落とす (Send 要求)
                     let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
                     if was_idle {
                         // stop 側で既に Idle 化済み
                         break;
                     }
+                    let status = if ready_signalled {
+                        CoreToolsStatus::Disconnected
+                    } else {
+                        CoreToolsStatus::Failed
+                    };
+                    if !state_for_reader.invalidate_generation(generation, status, false) {
+                        break;
+                    }
                     if !ready_signalled {
                         ready_signalled = true;
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
                         let _ = outcome_tx
                             .send(Err(format!(
                                 "tooth-backend terminated (code={:?})",
                                 payload.code
                             )))
                             .await;
-                    } else {
-                        *lock_status(&status_for_reader) = CoreToolsStatus::Disconnected;
                     }
                     break;
                 }
@@ -201,37 +251,45 @@ pub async fn start_core_tools_inner(
                 }
             }
         }
-        drain_pending_requests(&pending_requests_for_reader);
-        drain_terminal_waiters(&terminal_waiters_for_reader);
-        drain_progress_waiters(&progress_waiters_for_reader);
+        if generation_for_reader.load(Ordering::Acquire) != generation
+            || state_for_reader.has_terminated(generation)
+        {
+            return;
+        }
         // rx クローズ = プロセス終了
         let was_idle = *lock_status(&status_for_reader) == CoreToolsStatus::Idle;
         if was_idle {
             return;
         }
+        let status = if ready_signalled {
+            CoreToolsStatus::Disconnected
+        } else {
+            CoreToolsStatus::Failed
+        };
+        if !state_for_reader.invalidate_generation(generation, status, true) {
+            return;
+        }
         if !ready_signalled {
-            *lock_status(&status_for_reader) = CoreToolsStatus::Failed;
             let _ = outcome_tx
                 .send(Err("tooth-backend exited without ready".to_string()))
                 .await;
-        } else {
-            *lock_status(&status_for_reader) = CoreToolsStatus::Disconnected;
         }
     });
 
     // ready 待ち (10s タイムアウト)
     match tokio::time::timeout(READY_TIMEOUT, outcome_rx.recv()).await {
         Ok(Some(Ok(()))) => {
-            *lock_status(&state.status) = CoreToolsStatus::Running;
-            Ok(())
+            if state.mark_running(generation) {
+                Ok(())
+            } else {
+                Err(AppError::CoreTools(
+                    "core-tools transport became unavailable before startup completed".to_string(),
+                ))
+            }
         }
-        Ok(Some(Err(msg))) => {
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
-            Err(AppError::CoreTools(msg))
-        }
+        Ok(Some(Err(msg))) => Err(AppError::CoreTools(msg)),
         Ok(None) => {
             // outcome が送られずチャネルが閉じた
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
             Err(AppError::CoreTools(
                 "tooth-backend closed before ready".to_string(),
             ))
@@ -239,11 +297,7 @@ pub async fn start_core_tools_inner(
         Err(_) => {
             // タイムアウト: プロセスを kill してクリーンアップ
             log::error!("core-tools: ready timeout after {READY_TIMEOUT:?}");
-            *lock_status(&state.status) = CoreToolsStatus::Failed;
-            if let Some(child) = lock_child(&state.child).take() {
-                let _ = child.kill();
-            }
-            *lock_cmd_tx(&state.cmd_tx) = None;
+            state.invalidate_generation(generation, CoreToolsStatus::Failed, true);
             Err(AppError::CoreTools(
                 "tooth-backend did not become ready within 10s".to_string(),
             ))

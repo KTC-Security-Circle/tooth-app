@@ -95,11 +95,9 @@ pub async fn start_live_scan(
     // Keep manual turntable commands from moving the table between scans.
     let turntable_guard = turntable.movement.clone().lock_owned().await;
     let mut settings = Settings::load(&app)?;
-    if settings.matching_target_path.trim().is_empty() {
-        return Err(AppError::Validation(
-            "matchingTargetPath is required".into(),
-        ));
-    }
+    let reference_path =
+        crate::commands::preflight_scan::resolve_reference_ply(&settings)?.to_owned();
+    crate::commands::run_matching::validate_ply_path("reference_ply", &reference_path)?;
     let monitor_index = settings
         .monitor_index
         .ok_or_else(|| AppError::Validation("monitorIndex must be selected".into()))?;
@@ -348,14 +346,8 @@ pub async fn start_live_scan(
                 message: None,
             },
         );
-        let matching_result = run_matching_paths(
-            &app,
-            &matching,
-            &ply,
-            Path::new(&settings.matching_target_path),
-            &settings,
-        )
-        .await;
+        let matching_result =
+            run_matching_paths(&app, &matching, Path::new(&reference_path), &ply, &settings).await;
         let matching_result = match matching_result {
             Ok(result) => result,
             Err(error) => {

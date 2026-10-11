@@ -181,14 +181,9 @@ pub(crate) async fn process_scan_slot_inner(
             .map_err(AppError::Internal)?;
     }
     if manifest.stage == SlotStage::Reconstructed {
-        let result = run_matching_paths(
-            app,
-            matching,
-            &cloud,
-            Path::new(&config.fixed_reference_ply),
-            config,
-        )
-        .await?;
+        let reference_path = crate::commands::preflight_scan::resolve_reference_ply(config)?;
+        let result =
+            run_matching_paths(app, matching, &cloud, Path::new(reference_path), config).await?;
         manifest.matching =
             Some(serde_json::to_value(&result).map_err(|e| AppError::Internal(e.to_string()))?);
         manifest.stage = SlotStage::Matched;

@@ -25,6 +25,31 @@ export type CoreToolsEvent = {
   [key: string]: unknown
 }
 
+export type CoreMonitor = {
+  monitor_index: number
+  name: string
+  width: number
+  height: number
+  primary: boolean
+}
+
+let monitorRequestSequence = 0
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isCoreMonitor(value: unknown): value is CoreMonitor {
+  return (
+    isRecord(value) &&
+    Number.isInteger(value.monitor_index) &&
+    typeof value.name === 'string' &&
+    Number.isInteger(value.width) &&
+    Number.isInteger(value.height) &&
+    typeof value.primary === 'boolean'
+  )
+}
+
 /** core-tools の起動状態 (Rust 側 CoreToolsStatus enum と snake_case で対応) */
 export type CoreToolsStatus =
   | 'idle'
@@ -70,6 +95,86 @@ export function onCoreToolsEvent(
   return listen<CoreToolsEvent>('core-tools:event', (event) => {
     handler(event.payload)
   })
+}
+
+/** core-tools の monitor 一覧を相関 response から取得する。 */
+export async function listCoreMonitors(): Promise<CoreMonitor[]> {
+  const id = `monitors-${Date.now()}-${++monitorRequestSequence}`
+  let removeResponse: (() => void) | undefined
+  let removeEvent: (() => void) | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    return await new Promise<CoreMonitor[]>((resolve, reject) => {
+      let settled = false
+      const cleanup = () => {
+        if (timer !== undefined) clearTimeout(timer)
+        removeResponse?.()
+        removeEvent?.()
+      }
+      const fail = (message: string) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(new Error(message))
+      }
+      const complete = (monitors: CoreMonitor[]) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(monitors)
+      }
+
+      void (async () => {
+        try {
+          removeResponse = await onCoreToolsResponse((response) => {
+            if (response.id !== id) return
+            if (!response.ok) {
+              fail('モニター一覧の取得に失敗しました')
+              return
+            }
+            const encoded = response.monitors_json
+            if (typeof encoded !== 'string') {
+              fail('モニター一覧の応答が不正です')
+              return
+            }
+            try {
+              const parsed: unknown = JSON.parse(encoded)
+              if (!Array.isArray(parsed) || !parsed.every(isCoreMonitor)) {
+                fail('モニター一覧の形式が不正です')
+                return
+              }
+              complete(parsed.filter(isCoreMonitor))
+            } catch {
+              fail('モニター一覧のJSONを読み込めません')
+            }
+          })
+          removeEvent = await onCoreToolsEvent((event) => {
+            if (event.event === 'core_tools_terminated') {
+              fail('処理エンジンが終了しました')
+            }
+          })
+          if (settled) {
+            cleanup()
+            return
+          }
+          timer = setTimeout(
+            () => fail('モニター一覧の取得がタイムアウトしました'),
+            10_000,
+          )
+          await sendCoreToolsCommand(
+            JSON.stringify({ id, cmd: 'list_monitors' }),
+          )
+        } catch {
+          fail('処理エンジンへコマンドを送信できませんでした')
+        }
+      })()
+    })
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+    removeResponse?.()
+    removeEvent?.()
+  }
 }
 
 /** MJPEG プレビューの URL。CSP が null なので <img src> で直接参照可能。 */

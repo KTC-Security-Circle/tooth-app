@@ -10,11 +10,19 @@ interface Props {
   startStreams: (leftCameraId: number, rightCameraId: number) => Promise<void>
   stopStreams: () => Promise<void>
   isLoading: boolean
+  beforeControls?: React.ReactNode
 }
 
 const StreamPreview: React.FC<Props> & {
   Pane: typeof StreamPane
-} = ({ streamState, streamActive, startStreams, stopStreams, isLoading }) => {
+} = ({
+  streamState,
+  streamActive,
+  startStreams,
+  stopStreams,
+  isLoading,
+  beforeControls,
+}) => {
   const isIdle = streamState === 'idle'
   const isStreaming = streamState === 'streaming'
   const isStarting = streamState === 'starting'
@@ -52,6 +60,8 @@ const StreamPreview: React.FC<Props> & {
           loading={isStarting || isStopping}
         />
       </div>
+
+      {beforeControls}
 
       <div className="flex items-center justify-center gap-3">
         <Button disabled={!canStart || isLoading} onClick={handleStart}>

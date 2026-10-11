@@ -24,7 +24,7 @@ pub enum CoreToolsStatus {
     Ready,
     /// start コマンド完了、通常稼働中。
     Running,
-    /// プロセスが終了した (明示的停止以外)。
+    /// プロセス終了、または通信経路が無効になった。
     Disconnected,
     /// 起動失敗・タイムアウト・異常終了。
     Failed,
@@ -40,24 +40,35 @@ pub struct CoreToolsState {
     pub cmd_tx: Arc<Mutex<Option<Sender<String>>>>,
     pub child: Arc<Mutex<Option<CommandChild>>>,
     pub terminated: Arc<Notify>,
+    pub terminated_generation: Arc<AtomicU64>,
+    /// Serializes generation changes with transport invalidation so stale
+    /// readers cannot drain waiters registered for a newer process.
+    pub lifecycle: Arc<Mutex<()>>,
     pub pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
     pub terminal_waiters: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
     pub progress_waiters: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<serde_json::Value>>>>,
     pub live_scan_lock: Arc<tokio::sync::Mutex<()>>,
+    pub generation: Arc<AtomicU64>,
     next_request_id: Arc<AtomicU64>,
 }
 
 impl CoreToolsState {
     pub fn register_request(&self) -> (String, oneshot::Receiver<serde_json::Value>) {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .expect("core-tools lifecycle mutex poisoned");
         let id = format!(
             "rust-{}",
             self.next_request_id.fetch_add(1, Ordering::Relaxed)
         );
         let (sender, receiver) = oneshot::channel();
-        self.pending_requests
-            .lock()
-            .expect("core-tools pending requests mutex poisoned")
-            .insert(id.clone(), sender);
+        if !self.has_terminated(self.generation.load(Ordering::Acquire)) {
+            self.pending_requests
+                .lock()
+                .expect("core-tools pending requests mutex poisoned")
+                .insert(id.clone(), sender);
+        }
         (id, receiver)
     }
 
@@ -66,11 +77,17 @@ impl CoreToolsState {
     }
 
     pub fn register_terminal_waiter(&self, scan_id: &str) -> oneshot::Receiver<serde_json::Value> {
-        let (sender, receiver) = oneshot::channel();
-        self.terminal_waiters
+        let _lifecycle = self
+            .lifecycle
             .lock()
-            .expect("core-tools terminal waiters mutex poisoned")
-            .insert(scan_id.to_string(), sender);
+            .expect("core-tools lifecycle mutex poisoned");
+        let (sender, receiver) = oneshot::channel();
+        if !self.has_terminated(self.generation.load(Ordering::Acquire)) {
+            self.terminal_waiters
+                .lock()
+                .expect("core-tools terminal waiters mutex poisoned")
+                .insert(scan_id.to_string(), sender);
+        }
         receiver
     }
 
@@ -78,15 +95,237 @@ impl CoreToolsState {
         resolve_terminal_event(&self.terminal_waiters, event)
     }
 
+    pub fn remove_terminal_waiter(&self, scan_id: &str) {
+        self.terminal_waiters
+            .lock()
+            .expect("core-tools terminal waiters mutex poisoned")
+            .remove(scan_id);
+    }
+
+    pub fn has_terminated(&self, generation: u64) -> bool {
+        // This means the generation is unusable, not necessarily that the OS
+        // process has exited; invalidation kills a still-owned child.
+        self.terminated_generation.load(Ordering::Acquire) == generation
+    }
+
+    /// Invalidate a generation whose transport is no longer usable. This does
+    /// not imply process exit; when requested, the child is explicitly killed.
+    pub fn invalidate_generation(
+        &self,
+        generation: u64,
+        status: CoreToolsStatus,
+        kill_child: bool,
+    ) -> bool {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .expect("core-tools lifecycle mutex poisoned");
+        if self.generation.load(Ordering::Acquire) != generation || self.has_terminated(generation)
+        {
+            return false;
+        }
+        self.invalidate_generation_locked(generation, status, kill_child);
+        true
+    }
+
+    /// Publish a spawned transport only if its start still owns the current
+    /// generation. `reject` must dispose of the uninstalled child.
+    pub fn publish_transport<T>(
+        &self,
+        generation: u64,
+        sender: Sender<String>,
+        child: T,
+        publish: impl FnOnce(Sender<String>, T),
+        reject: impl FnOnce(T),
+    ) -> bool {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .expect("core-tools lifecycle mutex poisoned");
+        let starting = *self
+            .status
+            .lock()
+            .expect("core-tools status mutex poisoned")
+            == CoreToolsStatus::Starting;
+        let transport_empty = self
+            .cmd_tx
+            .lock()
+            .expect("core-tools cmd_tx mutex poisoned")
+            .is_none()
+            && self
+                .child
+                .lock()
+                .expect("core-tools child mutex poisoned")
+                .is_none();
+        if self.generation.load(Ordering::Acquire) == generation
+            && !self.has_terminated(generation)
+            && starting
+            && transport_empty
+        {
+            publish(sender, child);
+            true
+        } else {
+            reject(child);
+            false
+        }
+    }
+
+    /// Execute a writer operation while holding the lifecycle fence, so an
+    /// old writer cannot act on a replacement generation's child.
+    pub fn with_generation_child<T>(
+        &self,
+        generation: u64,
+        write: impl FnOnce(&mut CommandChild) -> T,
+    ) -> Option<T> {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .expect("core-tools lifecycle mutex poisoned");
+        if self.generation.load(Ordering::Acquire) != generation
+            || self.has_terminated(generation)
+            || self
+                .cmd_tx
+                .lock()
+                .expect("core-tools cmd_tx mutex poisoned")
+                .is_none()
+        {
+            return None;
+        }
+        self.child
+            .lock()
+            .expect("core-tools child mutex poisoned")
+            .as_mut()
+            .map(write)
+    }
+
+    pub fn mark_ready(&self, generation: u64) -> bool {
+        self.promote_status(
+            generation,
+            CoreToolsStatus::Starting,
+            CoreToolsStatus::Ready,
+        )
+    }
+
+    pub fn mark_running(&self, generation: u64) -> bool {
+        self.promote_status(generation, CoreToolsStatus::Ready, CoreToolsStatus::Running)
+    }
+
+    fn promote_status(
+        &self,
+        generation: u64,
+        expected: CoreToolsStatus,
+        next: CoreToolsStatus,
+    ) -> bool {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .expect("core-tools lifecycle mutex poisoned");
+        let mut status = self
+            .status
+            .lock()
+            .expect("core-tools status mutex poisoned");
+        if self.generation.load(Ordering::Acquire) != generation
+            || self.has_terminated(generation)
+            || *status != expected
+            || self
+                .cmd_tx
+                .lock()
+                .expect("core-tools cmd_tx mutex poisoned")
+                .is_none()
+        {
+            return false;
+        }
+        *status = next;
+        true
+    }
+
+    /// Stop and invalidate a generation synchronously before another start
+    /// can publish a new one.
+    pub fn stop_generation(&self) {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .expect("core-tools lifecycle mutex poisoned");
+        let generation = self.generation.load(Ordering::Acquire);
+        if !self.has_terminated(generation) {
+            self.invalidate_generation_locked(generation, CoreToolsStatus::Idle, true);
+        } else {
+            *self
+                .cmd_tx
+                .lock()
+                .expect("core-tools cmd_tx mutex poisoned") = None;
+            if let Some(child) = self
+                .child
+                .lock()
+                .expect("core-tools child mutex poisoned")
+                .take()
+            {
+                let _ = child.kill();
+            }
+            *self
+                .status
+                .lock()
+                .expect("core-tools status mutex poisoned") = CoreToolsStatus::Idle;
+            self.terminated.notify_one();
+        }
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn invalidate_generation_locked(
+        &self,
+        generation: u64,
+        status: CoreToolsStatus,
+        kill_child: bool,
+    ) {
+        *self
+            .cmd_tx
+            .lock()
+            .expect("core-tools cmd_tx mutex poisoned") = None;
+        if let Some(child) = self
+            .child
+            .lock()
+            .expect("core-tools child mutex poisoned")
+            .take()
+        {
+            if kill_child {
+                let _ = child.kill();
+            }
+        }
+        *self
+            .status
+            .lock()
+            .expect("core-tools status mutex poisoned") = status;
+        drain_pending_requests(&self.pending_requests);
+        drain_terminal_waiters(&self.terminal_waiters);
+        drain_progress_waiters(&self.progress_waiters);
+        self.terminated_generation
+            .store(generation, Ordering::Release);
+        self.terminated.notify_one();
+    }
+
+    pub fn available_generation(&self) -> Option<u64> {
+        self.status
+            .lock()
+            .ok()
+            .filter(|status| matches!(**status, CoreToolsStatus::Ready | CoreToolsStatus::Running))
+            .map(|_| self.generation.load(Ordering::Acquire))
+    }
+
     pub fn register_progress_waiter(
         &self,
         scan_id: &str,
     ) -> mpsc::UnboundedReceiver<serde_json::Value> {
-        let (sender, receiver) = mpsc::unbounded_channel();
-        self.progress_waiters
+        let _lifecycle = self
+            .lifecycle
             .lock()
-            .expect("core-tools progress waiters mutex poisoned")
-            .insert(scan_id.to_string(), sender);
+            .expect("core-tools lifecycle mutex poisoned");
+        let (sender, receiver) = mpsc::unbounded_channel();
+        if !self.has_terminated(self.generation.load(Ordering::Acquire)) {
+            self.progress_waiters
+                .lock()
+                .expect("core-tools progress waiters mutex poisoned")
+                .insert(scan_id.to_string(), sender);
+        }
         receiver
     }
 
@@ -266,10 +505,13 @@ impl Default for CoreToolsState {
             cmd_tx: Arc::new(Mutex::new(None)),
             child: Arc::new(Mutex::new(None)),
             terminated: Arc::new(Notify::new()),
+            terminated_generation: Arc::new(AtomicU64::new(u64::MAX)),
+            lifecycle: Arc::new(Mutex::new(())),
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             terminal_waiters: Arc::new(Mutex::new(HashMap::new())),
             progress_waiters: Arc::new(Mutex::new(HashMap::new())),
             live_scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            generation: Arc::new(AtomicU64::new(0)),
             next_request_id: Arc::new(AtomicU64::new(1)),
         }
     }
@@ -441,5 +683,137 @@ mod tests {
         ));
         let event = receiver.try_recv().expect("progress event");
         assert_eq!(event["event"], "stereo_scan_decoding");
+    }
+
+    #[test]
+    fn exposes_only_active_generation_and_tracks_its_termination() {
+        let state = CoreToolsState::default();
+        assert_eq!(state.available_generation(), None);
+        *state.status.lock().expect("status") = CoreToolsStatus::Running;
+        assert_eq!(state.available_generation(), Some(0));
+        assert!(!state.has_terminated(0));
+        state.terminated_generation.store(0, Ordering::Release);
+        assert!(state.has_terminated(0));
+        state.generation.store(1, Ordering::Release);
+        assert!(!state.has_terminated(1));
+    }
+
+    #[test]
+    fn invalidation_drains_every_waiter_map_and_wakes_generation_waiter() {
+        tauri::async_runtime::block_on(async {
+            let state = CoreToolsState::default();
+            let (_, response) = state.register_request();
+            let terminal = state.register_terminal_waiter("scan");
+            let progress = state.register_progress_waiter("scan");
+            let notified = state.terminated.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+
+            assert!(state.invalidate_generation(0, CoreToolsStatus::Disconnected, false));
+            assert!(state.has_terminated(0));
+            assert!(state.pending_requests.lock().expect("requests").is_empty());
+            assert!(state.terminal_waiters.lock().expect("terminal").is_empty());
+            assert!(state.progress_waiters.lock().expect("progress").is_empty());
+            assert!(response.await.is_err());
+            assert!(terminal.await.is_err());
+            assert!(progress.is_closed());
+            tokio::time::timeout(Duration::from_millis(10), notified)
+                .await
+                .expect("termination notification");
+        });
+    }
+
+    #[test]
+    fn stale_generation_cannot_invalidate_new_generation_waiters() {
+        let state = CoreToolsState::default();
+        state.generation.store(2, Ordering::Release);
+        let (_, response) = state.register_request();
+        let terminal = state.register_terminal_waiter("scan-new");
+        let progress = state.register_progress_waiter("scan-new");
+
+        assert!(!state.invalidate_generation(1, CoreToolsStatus::Disconnected, true));
+        assert!(!state.has_terminated(1));
+        assert_eq!(state.pending_requests.lock().expect("requests").len(), 1);
+        assert_eq!(state.terminal_waiters.lock().expect("terminal").len(), 1);
+        assert_eq!(state.progress_waiters.lock().expect("progress").len(), 1);
+        drop((response, terminal, progress));
+    }
+
+    #[test]
+    fn explicit_stop_notifies_and_advances_generation_before_restart() {
+        tauri::async_runtime::block_on(async {
+            let state = CoreToolsState::default();
+            *state.status.lock().expect("status") = CoreToolsStatus::Running;
+            let (_, response) = state.register_request();
+            let notified = state.terminated.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+
+            state.stop_generation();
+            assert_eq!(state.generation.load(Ordering::Acquire), 1);
+            assert_eq!(*state.status.lock().expect("status"), CoreToolsStatus::Idle);
+            assert!(state.cmd_tx.lock().expect("cmd_tx").is_none());
+            assert!(response.await.is_err());
+            assert!(state.has_terminated(0));
+            tokio::time::timeout(Duration::from_millis(10), notified)
+                .await
+                .expect("stop notification");
+        });
+    }
+
+    #[test]
+    fn stop_during_spawn_rejects_and_disposes_unpublished_child() {
+        let state = CoreToolsState::default();
+        *state.status.lock().expect("status") = CoreToolsStatus::Starting;
+        state.stop_generation();
+        let (sender, _receiver) = tauri::async_runtime::channel(1);
+        let published = std::sync::atomic::AtomicBool::new(false);
+        let disposed = std::sync::atomic::AtomicBool::new(false);
+
+        assert!(!state.publish_transport(
+            0,
+            sender,
+            "spawned child",
+            |_, _| published.store(true, Ordering::Release),
+            |child| {
+                assert_eq!(child, "spawned child");
+                disposed.store(true, Ordering::Release);
+            },
+        ));
+        assert!(!published.load(Ordering::Acquire));
+        assert!(disposed.load(Ordering::Acquire));
+        assert!(state.child.lock().expect("child").is_none());
+        assert!(state.cmd_tx.lock().expect("cmd_tx").is_none());
+    }
+
+    #[test]
+    fn crash_after_ready_prevents_running_promotion() {
+        let state = CoreToolsState::default();
+        *state.status.lock().expect("status") = CoreToolsStatus::Starting;
+        let (sender, _receiver) = tauri::async_runtime::channel(1);
+        *state.cmd_tx.lock().expect("cmd_tx") = Some(sender);
+
+        assert!(state.mark_ready(0));
+        assert!(state.invalidate_generation(0, CoreToolsStatus::Disconnected, false));
+        assert!(!state.mark_running(0));
+        assert_eq!(
+            *state.status.lock().expect("status"),
+            CoreToolsStatus::Disconnected
+        );
+    }
+
+    #[test]
+    fn old_writer_cannot_reach_replacement_generation_child() {
+        let state = CoreToolsState::default();
+        state.generation.store(1, Ordering::Release);
+        *state.status.lock().expect("status") = CoreToolsStatus::Running;
+        let (sender, _receiver) = tauri::async_runtime::channel(1);
+        *state.cmd_tx.lock().expect("cmd_tx") = Some(sender);
+        let wrote = std::sync::atomic::AtomicBool::new(false);
+
+        assert!(state
+            .with_generation_child(0, |_| wrote.store(true, Ordering::Release))
+            .is_none());
+        assert!(!wrote.load(Ordering::Acquire));
     }
 }

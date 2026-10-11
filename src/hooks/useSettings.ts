@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { dirname, join } from '@tauri-apps/api/path'
-import { open } from '@tauri-apps/plugin-dialog'
+import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
 import { extractErrorMessage } from '@/lib/extractError'
@@ -16,6 +16,7 @@ export type Settings = {
   matchingTargetPath?: string
   matchingVoxelSize?: number
   matchingRansacIterations?: number
+  projectorMonitorIndex?: number
   turntablePort: string
   turntableSpeed: number
   turntableAcceleration: number
@@ -23,7 +24,9 @@ export type Settings = {
   turntableMoveTimeoutMs: number
 }
 
-export type SettingsPatch = Partial<Settings>
+export type SettingsPatch = Omit<Partial<Settings>, 'projectorMonitorIndex'> & {
+  projectorMonitorIndex?: number | null
+}
 
 export type CameraInfo = {
   name: string
@@ -86,6 +89,7 @@ export function useSettings({
         turntableAcceleration: settings.turntableAcceleration,
         turntableSettleTimeMs: settings.turntableSettleTimeMs,
         turntableMoveTimeoutMs: settings.turntableMoveTimeoutMs,
+        projectorMonitorIndex: settings.projectorMonitorIndex ?? null,
       }
       if (settings.calibrationImagePath !== undefined) {
         patch.calibrationImagePath = settings.calibrationImagePath
@@ -119,6 +123,10 @@ export function useSettings({
     value: Settings[K],
   ) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const setProjectorMonitorIndex = (value: number | undefined) => {
+    setSettings((prev) => ({ ...prev, projectorMonitorIndex: value }))
   }
 
   const browsePath = async () => {
@@ -178,8 +186,7 @@ export function useSettings({
   }
 
   const browseMatchingTargetPath = async () => {
-    const selected = await open({
-      multiple: false,
+    const selected = await saveDialog({
       filters: [{ name: 'PLY', extensions: ['ply'] }],
     })
     if (selected !== null && typeof selected === 'string') {
@@ -240,6 +247,7 @@ export function useSettings({
     status,
     save,
     updateField,
+    setProjectorMonitorIndex,
     browsePath,
     browseMatchingSourcePath,
     browseMatchingTargetPath,

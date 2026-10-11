@@ -7,6 +7,18 @@ use crate::{
     state::{scan_configuration::CalibrationProfileManifest, settings::Settings},
 };
 
+pub(crate) fn resolve_reference_ply(settings: &Settings) -> Result<&str, AppError> {
+    let fixed = settings.fixed_reference_ply.trim();
+    let source = settings.matching_source_path.trim();
+    let reference = if fixed.is_empty() { source } else { fixed };
+    if reference.is_empty() {
+        return Err(AppError::Validation(
+            "fixedReferencePly or matchingSourcePath is required before scanning".to_string(),
+        ));
+    }
+    Ok(reference)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreflightCheck {
@@ -27,12 +39,6 @@ pub fn validate_scan_configuration(settings: &Settings) -> Result<PreflightResul
     check_dir(&mut checks, "dataRoot", &settings.data_root, "data root");
     check_file(
         &mut checks,
-        "fixedReferencePly",
-        &settings.fixed_reference_ply,
-        "fixed reference PLY",
-    );
-    check_file(
-        &mut checks,
         "stereoCalibrationFile",
         &settings.stereo_calibration_file,
         "stereo calibration file",
@@ -44,15 +50,21 @@ pub fn validate_scan_configuration(settings: &Settings) -> Result<PreflightResul
         "calibration profile",
     );
     if settings.data_root.is_empty()
-        || settings.fixed_reference_ply.is_empty()
         || settings.stereo_calibration_file.is_empty()
         || settings.calibration_profile_path.is_empty()
     {
         return Err(AppError::Validation(
-            "data root, calibration profile, stereo calibration file, and fixed reference PLY are required before scanning"
+            "data root, calibration profile, stereo calibration file, and fixed reference PLY or matching source PLY are required before scanning"
                 .to_string(),
         ));
     }
+    let reference = resolve_reference_ply(settings)?;
+    check_file(
+        &mut checks,
+        "referencePly",
+        reference,
+        "fixed reference PLY",
+    );
     let profile_path = Path::new(&settings.calibration_profile_path);
     let profile_result = CalibrationProfileManifest::load(profile_path)
         .and_then(|profile| profile.validate_files(profile_path))
