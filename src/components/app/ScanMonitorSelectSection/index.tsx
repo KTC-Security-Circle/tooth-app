@@ -47,14 +47,14 @@ const ScanMonitorSelectSection: React.FC<Props> = ({
   )
 
   return (
-    <SectionPanel heading="スキャンモニター">
+    <SectionPanel heading="撮影用プロジェクター">
       <div className="space-y-4">
         <FormField>
-          <FormField.Label htmlFor="scan-monitor">モニター</FormField.Label>
+          <FormField.Label htmlFor="scan-monitor">投影先</FormField.Label>
           <FormField.Select
             id="scan-monitor"
             value={monitorIndex == null ? '' : String(monitorIndex)}
-            disabled={loading}
+            disabled={loading || error !== null}
             onChange={(event) => {
               const value = event.currentTarget.value
               onMonitorIndexChange(value === '' ? null : Number(value))
@@ -63,6 +63,11 @@ const ScanMonitorSelectSection: React.FC<Props> = ({
             <FormField.Select.Option value="">
               {loading ? '検出中...' : '未選択'}
             </FormField.Select.Option>
+            {monitorIndex != null && selectedMonitor === undefined && (
+              <FormField.Select.Option value={monitorIndex} disabled>
+                保存済みモニター（番号 {monitorIndex}・現在取得できません）
+              </FormField.Select.Option>
+            )}
             {monitors.map((monitor) => (
               <FormField.Select.Option
                 key={monitor.index}
@@ -74,6 +79,9 @@ const ScanMonitorSelectSection: React.FC<Props> = ({
             ))}
           </FormField.Select>
         </FormField>
+        <p className="text-muted-foreground text-xs">
+          撮影とマッチングに使うプロジェクターの投影先を選択してください。
+        </p>
 
         {error ? (
           <p className="text-destructive text-sm" role="alert">

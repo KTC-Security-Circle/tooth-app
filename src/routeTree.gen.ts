@@ -16,7 +16,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as ScanIndexRouteImport } from './routes/scan/index'
-import { Route as CameraIndexRouteImport } from './routes/camera/index'
 
 const SetupRouteRoute = SetupRouteRouteImport.update({
   id: '/setup',
@@ -53,25 +52,18 @@ const ScanIndexRoute = ScanIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ScanRouteRoute,
 } as any)
-const CameraIndexRoute = CameraIndexRouteImport.update({
-  id: '/camera/',
-  path: '/camera/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/scan': typeof ScanRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/setup': typeof SetupRouteRouteWithChildren
-  '/camera/': typeof CameraIndexRoute
   '/scan/': typeof ScanIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/setup/': typeof SetupIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/camera': typeof CameraIndexRoute
   '/scan': typeof ScanIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/setup': typeof SetupIndexRoute
@@ -82,7 +74,6 @@ export interface FileRoutesById {
   '/scan': typeof ScanRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/setup': typeof SetupRouteRouteWithChildren
-  '/camera/': typeof CameraIndexRoute
   '/scan/': typeof ScanIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -90,23 +81,15 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/scan'
-    | '/settings'
-    | '/setup'
-    | '/camera/'
-    | '/scan/'
-    | '/settings/'
-    | '/setup/'
+    '/' | '/scan' | '/settings' | '/setup' | '/scan/' | '/settings/' | '/setup/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/camera' | '/scan' | '/settings' | '/setup'
+  to: '/' | '/scan' | '/settings' | '/setup'
   id:
     | '__root__'
     | '/'
     | '/scan'
     | '/settings'
     | '/setup'
-    | '/camera/'
     | '/scan/'
     | '/settings/'
     | '/setup/'
@@ -117,7 +100,6 @@ export interface RootRouteChildren {
   ScanRouteRoute: typeof ScanRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   SetupRouteRoute: typeof SetupRouteRouteWithChildren
-  CameraIndexRoute: typeof CameraIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -171,13 +153,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScanIndexRouteImport
       parentRoute: typeof ScanRouteRoute
     }
-    '/camera/': {
-      id: '/camera/'
-      path: '/camera'
-      fullPath: '/camera/'
-      preLoaderRoute: typeof CameraIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -222,7 +197,6 @@ const rootRouteChildren: RootRouteChildren = {
   ScanRouteRoute: ScanRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   SetupRouteRoute: SetupRouteRouteWithChildren,
-  CameraIndexRoute: CameraIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

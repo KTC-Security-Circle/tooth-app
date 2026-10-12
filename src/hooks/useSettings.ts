@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
-import { dirname, join } from '@tauri-apps/api/path'
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
+import { resolveCameraSelection } from '@/lib/cameraSelection'
 import { extractErrorMessage } from '@/lib/extractError'
 
 export type Settings = {
@@ -68,12 +68,23 @@ export function useSettings({
   )
 
   const save = async (): Promise<boolean> => {
-    if (!settings.cameraLeft) {
-      setStatus({ type: 'error', message: '左カメラを選択してください' })
+    const selection = resolveCameraSelection(
+      settings.cameraLeft,
+      settings.cameraRight,
+    )
+    if ('error' in selection) {
+      setStatus({ type: 'error', message: selection.error })
       return false
     }
-    if (!settings.cameraRight) {
-      setStatus({ type: 'error', message: '右カメラを選択してください' })
+    if (
+      !Number.isInteger(settings.fps) ||
+      settings.fps < 1 ||
+      settings.fps > 120
+    ) {
+      setStatus({
+        type: 'error',
+        message: 'FPS は 1〜120 の整数で指定してください。',
+      })
       return false
     }
 
@@ -84,15 +95,6 @@ export function useSettings({
         cameraLeft: settings.cameraLeft,
         cameraRight: settings.cameraRight,
         fps: settings.fps,
-        turntablePort: settings.turntablePort,
-        turntableSpeed: settings.turntableSpeed,
-        turntableAcceleration: settings.turntableAcceleration,
-        turntableSettleTimeMs: settings.turntableSettleTimeMs,
-        turntableMoveTimeoutMs: settings.turntableMoveTimeoutMs,
-        projectorMonitorIndex: settings.projectorMonitorIndex ?? null,
-      }
-      if (settings.calibrationImagePath !== undefined) {
-        patch.calibrationImagePath = settings.calibrationImagePath
       }
       if (settings.matchingSourcePath !== undefined) {
         patch.matchingSourcePath = settings.matchingSourcePath
@@ -125,56 +127,6 @@ export function useSettings({
     setSettings((prev) => ({ ...prev, [key]: value }))
   }
 
-  const setProjectorMonitorIndex = (value: number | undefined) => {
-    setSettings((prev) => ({ ...prev, projectorMonitorIndex: value }))
-  }
-
-  const browsePath = async () => {
-    const selected = await open({ directory: true })
-    if (selected !== null && typeof selected === 'string') {
-      const previousDefaultSourcePath = settings.calibrationImagePath
-        ? await join(
-            await dirname(settings.calibrationImagePath),
-            '3d_data',
-            'source.ply',
-          )
-        : null
-      const previousDefaultTargetPath = settings.calibrationImagePath
-        ? await join(
-            await dirname(settings.calibrationImagePath),
-            '3d_data',
-            'target.ply',
-          )
-        : null
-      const parent = await dirname(selected)
-      const defaultSourcePath = parent
-        ? await join(parent, '3d_data', 'source.ply')
-        : null
-      const defaultTargetPath = parent
-        ? await join(parent, '3d_data', 'target.ply')
-        : null
-
-      setSettings((prev) => {
-        const next: Settings = { ...prev, calibrationImagePath: selected }
-        if (
-          defaultSourcePath &&
-          (!prev.matchingSourcePath ||
-            prev.matchingSourcePath === previousDefaultSourcePath)
-        ) {
-          next.matchingSourcePath = defaultSourcePath
-        }
-        if (
-          defaultTargetPath &&
-          (!prev.matchingTargetPath ||
-            prev.matchingTargetPath === previousDefaultTargetPath)
-        ) {
-          next.matchingTargetPath = defaultTargetPath
-        }
-        return next
-      })
-    }
-  }
-
   const browseMatchingSourcePath = async () => {
     const selected = await open({
       multiple: false,
@@ -195,13 +147,10 @@ export function useSettings({
   }
 
   const enableDeveloperMode = async () => {
-    setSettings((prev) => ({ ...prev, developerMode: true }))
-
     setStatus({ type: 'loading', message: '保存中...' })
     try {
       await invoke<void>('update_settings', { patch: { developerMode: true } })
-      const loaded = await invoke<Settings>('load_settings')
-      setSettings(loaded)
+      setSettings((prev) => ({ ...prev, developerMode: true }))
       setStatus({
         type: 'success',
         message: '開発者モードを有効にしました',
@@ -215,20 +164,10 @@ export function useSettings({
   }
 
   const disableDeveloperMode = async () => {
-    setSettings((prev) => ({ ...prev, developerMode: false }))
-
     setStatus({ type: 'loading', message: '保存中...' })
     try {
       await invoke<void>('update_settings', { patch: { developerMode: false } })
-      setSettings((prev) => ({
-        ...prev,
-        developerMode: false,
-        calibrationImagePath: undefined,
-        matchingSourcePath: undefined,
-        matchingTargetPath: undefined,
-        matchingVoxelSize: undefined,
-        matchingRansacIterations: undefined,
-      }))
+      setSettings((prev) => ({ ...prev, developerMode: false }))
       setStatus({
         type: 'success',
         message: '開発者モードを無効にしました',
@@ -247,8 +186,6 @@ export function useSettings({
     status,
     save,
     updateField,
-    setProjectorMonitorIndex,
-    browsePath,
     browseMatchingSourcePath,
     browseMatchingTargetPath,
     enableDeveloperMode,

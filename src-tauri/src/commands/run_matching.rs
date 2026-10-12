@@ -251,11 +251,6 @@ pub async fn run_matching(
     if settings.stereo_calibration_file.trim().is_empty() {
         settings.stereo_calibration_file = "data/calib/stereo.yml".to_string();
     }
-    if !settings.developer_mode {
-        return Err(AppError::Validation(
-            "developer mode must be enabled to run matching".to_string(),
-        ));
-    }
     let source_path = home_matching_source_path(&settings)?;
     let source_path = validate_ply_path("source_path", source_path)?;
     let target_path = validate_ply_output_path(&settings.matching_target_path)?;
@@ -265,16 +260,16 @@ pub async fn run_matching(
         settings.fixed_reference_ply.as_str(),
     ];
     validate_target_aliases(&target_path, &target_references)?;
-    let monitor_index = settings.projector_monitor_index.ok_or_else(|| {
-        AppError::Validation("プロジェクターのモニターを選択してください".to_string())
-    })?;
+    let monitor_index = settings
+        .monitor_index
+        .ok_or_else(|| AppError::Validation("monitorIndex must be selected".to_string()))?;
     if !crate::commands::list_scan_monitors::list_scan_monitors_inner(&core_tools)
         .await?
         .iter()
         .any(|monitor| monitor.index == monitor_index)
     {
         return Err(AppError::Validation(format!(
-            "projector monitor index {monitor_index} is not available"
+            "monitor index {monitor_index} is not available"
         )));
     }
     let left_camera_id = camera_id("camera_left", &settings.camera_left)?;
@@ -305,8 +300,8 @@ pub async fn run_matching(
         monitor_index,
         left_camera_id,
         right_camera_id,
-        &settings.stereo_calibration_file,
         &temp_path_string,
+        &settings,
     )
     .await
     {
@@ -650,8 +645,8 @@ async fn run_stereo_scan(
     monitor_index: u32,
     left_camera_id: i32,
     right_camera_id: i32,
-    calibration_file: &str,
     target_path: &str,
+    settings: &Settings,
 ) -> Result<(), ScanFailure> {
     let core_generation = core_tools.available_generation().ok_or_else(|| {
         ScanFailure::Complete(AppError::CoreTools("core-tools is not running".to_string()))
@@ -667,9 +662,10 @@ async fn run_stereo_scan(
         "left_camera_id": left_camera_id,
         "right_camera_id": right_camera_id,
         "monitor_index": monitor_index,
-        "calibration_file": calibration_file,
+        "calibration_file": settings.stereo_calibration_file,
         "sync_mode": "delay",
         "delay_ms": 100,
+        "decode_threshold": settings.decode_threshold,
         "ply_file": target_path,
     });
     let terminal = core_tools.register_terminal_waiter(&scan_id);

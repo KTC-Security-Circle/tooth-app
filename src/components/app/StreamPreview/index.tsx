@@ -1,7 +1,12 @@
+import { invoke } from '@tauri-apps/api/core'
+import { useEffect, useState } from 'react'
 import Button from '@/components/ui/Button'
 import type { StreamState } from '@/hooks/useCoreToolsStream'
+import type { Settings } from '@/hooks/useSettings'
+import { resolveCameraSelection } from '@/lib/cameraSelection'
 import { cn } from '@/lib/cn'
 import { mjpegStreamUrl } from '@/lib/coreTools'
+import { extractErrorMessage } from '@/lib/extractError'
 import StreamPane from './StreamPane'
 
 interface Props {
@@ -10,32 +15,49 @@ interface Props {
   startStreams: (leftCameraId: number, rightCameraId: number) => Promise<void>
   stopStreams: () => Promise<void>
   isLoading: boolean
-  beforeControls?: React.ReactNode
 }
 
 const StreamPreview: React.FC<Props> & {
   Pane: typeof StreamPane
-} = ({
-  streamState,
-  streamActive,
-  startStreams,
-  stopStreams,
-  isLoading,
-  beforeControls,
-}) => {
+} = ({ streamState, streamActive, startStreams, stopStreams, isLoading }) => {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    invoke<Settings>('load_settings')
+      .then((loaded) => {
+        if (!cancelled) setSettings(loaded)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSettingsError(
+            `カメラ設定を読み込めませんでした: ${extractErrorMessage(error)}`,
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const selection = settings
+    ? resolveCameraSelection(settings.cameraLeft, settings.cameraRight)
+    : null
+  const selectionError =
+    settingsError ??
+    (selection && 'error' in selection ? selection.error : null)
   const isIdle = streamState === 'idle'
   const isStreaming = streamState === 'streaming'
   const isStarting = streamState === 'starting'
   const isStopping = streamState === 'stopping'
 
-  const canStart = isIdle || isStopping
+  const canStart = isIdle && selection !== null && !selectionError
   const canStop = isStreaming
 
   const handleStart = async () => {
-    // TODO: Settings にはカメラ path 文字列しかなく、core-tools の open_camera は
-    // camera_id (数値) を要求する。path → camera_id の変換は今回スコープ外。
-    // serve_app_flow_test.sh の LEFT_CAMERA=0, RIGHT_CAMERA=2 に倣い、仮に固定値を渡す。
-    await startStreams(0, 2)
+    if (!selection || 'error' in selection) return
+    await startStreams(selection.leftCameraId, selection.rightCameraId)
   }
 
   const handleStop = async () => {
@@ -61,7 +83,15 @@ const StreamPreview: React.FC<Props> & {
         />
       </div>
 
-      {beforeControls}
+      {selectionError ? (
+        <p className="text-center text-destructive text-sm" role="alert">
+          {selectionError}
+        </p>
+      ) : !settings ? (
+        <p className="text-center text-muted-foreground text-sm" role="status">
+          カメラ設定を読み込み中...
+        </p>
+      ) : null}
 
       <div className="flex items-center justify-center gap-3">
         <Button disabled={!canStart || isLoading} onClick={handleStart}>

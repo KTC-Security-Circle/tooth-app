@@ -186,7 +186,8 @@ pub async fn start_live_scan(
             "cmd":"stereo_scan", "scan_id":id, "monitor_index":monitor_index,
             "left_camera_id":left_camera, "right_camera_id":right_camera,
             "calibration_file":settings.stereo_calibration_file,
-            "sync_mode":"delay", "delay_ms":100
+            "sync_mode":"delay", "delay_ms":100,
+            "decode_threshold":settings.decode_threshold
         });
         if let Some(output) = &output {
             command["output_dir"] =

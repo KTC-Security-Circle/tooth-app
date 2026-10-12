@@ -16,15 +16,9 @@ export const Route = createRootRoute({
       <nav className="border-border border-b bg-card px-4 py-3">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <span className="font-semibold text-foreground text-sm">
-            Tooth Calibrator
+            Tooth Matcher
           </span>
           <div className="flex items-center gap-2">
-            <Link
-              to="/camera"
-              className="rounded-md px-2 py-1 text-muted-foreground text-sm hover:bg-accent hover:text-accent-foreground"
-            >
-              カメラ
-            </Link>
             <Link
               to="/settings"
               aria-label="設定"
@@ -35,7 +29,7 @@ export const Route = createRootRoute({
           </div>
         </div>
       </nav>
-      <main className="flex-1">
+      <main className="flex-1 has-[>[data-home]]:flex">
         <Outlet />
       </main>
       <TanStackRouterDevtools />

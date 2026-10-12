@@ -5,6 +5,6 @@ use crate::state::settings::{Settings, SettingsPatch};
 pub async fn update_settings(app: tauri::AppHandle, patch: SettingsPatch) -> Result<(), AppError> {
     let mut settings = Settings::load(&app)?;
     patch.apply_to(&mut settings);
-    settings.validate()?;
+    patch.validate_applied_settings(&settings)?;
     settings.save(&app)
 }

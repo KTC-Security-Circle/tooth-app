@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Status } from '@/components/ui/StatusBanner'
+import { resolveCameraSelection } from '@/lib/cameraSelection'
 import {
   type CoreToolsResponse,
   coreToolsStatus,
@@ -21,6 +22,39 @@ type CameraOpenState = {
 type StreamActiveState = {
   left: boolean
   right: boolean
+}
+
+export async function startStreamPair(
+  startStream: (role: StreamRole) => Promise<CoreToolsResponse>,
+  stopStream: (role: StreamRole) => Promise<CoreToolsResponse>,
+): Promise<
+  { ok: true } | { ok: false; active: StreamActiveState; message: string }
+> {
+  const starts = await Promise.allSettled([
+    startStream('left'),
+    startStream('right'),
+  ])
+  const failure = starts.find((result) => result.status === 'rejected')
+  if (!failure) return { ok: true }
+
+  // A rejected request may still have started a stream; stop both after both settle.
+  const stops = await Promise.allSettled([
+    stopStream('left'),
+    stopStream('right'),
+  ])
+  const cleanupFailure = stops.find((result) => result.status === 'rejected')
+  return {
+    ok: false,
+    active: {
+      left: stops[0].status === 'rejected',
+      right: stops[1].status === 'rejected',
+    },
+    message: `ストリーム開始に失敗しました: ${extractErrorMessage(failure.reason)}${
+      cleanupFailure
+        ? `。停止にも失敗しました: ${extractErrorMessage(cleanupFailure.reason)}。ストリーム停止を再試行してください。`
+        : ''
+    }`,
+  }
 }
 
 /**
@@ -130,14 +164,14 @@ export function useCoreToolsStream() {
           break
         }
         case 'camera_opened': {
-          const role = event.role as StreamRole | undefined
+          const role = event.role
           if (role === 'left' || role === 'right') {
             setCameraOpen((prev) => ({ ...prev, [role]: true }))
           }
           break
         }
         case 'camera_closed': {
-          const role = event.role as StreamRole | undefined
+          const role = event.role
           if (role === 'left' || role === 'right') {
             setCameraOpen((prev) => ({ ...prev, [role]: false }))
             setStreamActive((prev) => ({ ...prev, [role]: false }))
@@ -145,14 +179,14 @@ export function useCoreToolsStream() {
           break
         }
         case 'stream_started': {
-          const role = event.role as StreamRole | undefined
+          const role = event.role
           if (role === 'left' || role === 'right') {
             setStreamActive((prev) => ({ ...prev, [role]: true }))
           }
           break
         }
         case 'stream_stopped': {
-          const role = event.role as StreamRole | undefined
+          const role = event.role
           if (role === 'left' || role === 'right') {
             setStreamActive((prev) => ({ ...prev, [role]: false }))
           }
@@ -171,15 +205,15 @@ export function useCoreToolsStream() {
   }, [])
 
   const sendCommand = useCallback(
-    <T extends Record<string, unknown>>(
+    (
       cmd: string,
       extra: Record<string, unknown> = {},
-    ): Promise<T> => {
+    ): Promise<CoreToolsResponse> => {
       const id = String(++idCounter.current)
       const json = JSON.stringify({ id, cmd, ...extra })
-      return new Promise<T>((resolve, reject) => {
+      return new Promise<CoreToolsResponse>((resolve, reject) => {
         pendingCommands.current.set(id, {
-          resolve: (r) => resolve(r as unknown as T),
+          resolve,
           reject,
         })
         const timer = setTimeout(() => {
@@ -201,7 +235,7 @@ export function useCoreToolsStream() {
 
   const openCamera = useCallback(
     (role: StreamRole, cameraId: number) => {
-      return sendCommand<{ ok: boolean }>('open_camera', {
+      return sendCommand('open_camera', {
         camera_id: cameraId,
         role,
       })
@@ -211,34 +245,47 @@ export function useCoreToolsStream() {
 
   const startStream = useCallback(
     (role: StreamRole) => {
-      return sendCommand<{ ok: boolean; url: string }>('start_stream', { role })
+      return sendCommand('start_stream', { role })
     },
     [sendCommand],
   )
 
   const stopStream = useCallback(
     (role: StreamRole) => {
-      return sendCommand<{ ok: boolean }>('stop_stream', { role })
+      return sendCommand('stop_stream', { role })
     },
     [sendCommand],
   )
 
   /**
    * 両眼ストリームを開始する。
-   * 事前に両カメラが open されている必要がある。
+   * 選択したカメラを開き直してから開始する。
    */
   const startStreams = useCallback(
     async (leftCameraId: number, rightCameraId: number) => {
+      const selection = resolveCameraSelection(
+        String(leftCameraId),
+        String(rightCameraId),
+      )
+      if ('error' in selection) {
+        setStatus({ type: 'error', message: selection.error })
+        return
+      }
       setStreamState('starting')
       setStatus({ type: 'loading', message: 'ストリームを開始しています...' })
       try {
-        if (!cameraOpen.left) {
-          await openCamera('left', leftCameraId)
+        await openCamera('left', leftCameraId)
+        await openCamera('right', rightCameraId)
+        const result = await startStreamPair(startStream, stopStream)
+        if (!result.ok) {
+          setStreamActive(result.active)
+          setStreamState(
+            result.active.left || result.active.right ? 'streaming' : 'idle',
+          )
+          setStatus({ type: 'error', message: result.message })
+          return
         }
-        if (!cameraOpen.right) {
-          await openCamera('right', rightCameraId)
-        }
-        await Promise.all([startStream('left'), startStream('right')])
+        setStreamActive({ left: true, right: true })
         setStreamState('streaming')
         setStatus({ type: 'success', message: 'ストリームを開始しました' })
       } catch (e) {
@@ -249,7 +296,7 @@ export function useCoreToolsStream() {
         })
       }
     },
-    [cameraOpen.left, cameraOpen.right, openCamera, startStream],
+    [openCamera, startStream, stopStream],
   )
 
   /**
@@ -261,9 +308,11 @@ export function useCoreToolsStream() {
     try {
       if (streamActive.left) {
         await stopStream('left')
+        setStreamActive((prev) => ({ ...prev, left: false }))
       }
       if (streamActive.right) {
         await stopStream('right')
+        setStreamActive((prev) => ({ ...prev, right: false }))
       }
       setStreamState('idle')
       setStatus({ type: 'success', message: 'ストリームを停止しました' })

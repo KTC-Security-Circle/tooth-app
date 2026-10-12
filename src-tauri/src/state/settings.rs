@@ -201,6 +201,14 @@ impl SettingsPatch {
         }
         settings.derive_matching_paths();
     }
+
+    pub fn validate_applied_settings(&self, settings: &Settings) -> Result<(), AppError> {
+        settings.validate()?;
+        if self.calibration_image_path.is_some() {
+            settings.validate_calibration_image_path()?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for Settings {
@@ -330,8 +338,12 @@ impl Settings {
                 "右カメラを選択してください".to_string(),
             ));
         }
+        Ok(())
+    }
+
+    fn validate_calibration_image_path(&self) -> Result<(), AppError> {
         if !self.calibration_image_path.is_empty() {
-            let path = std::path::Path::new(&self.calibration_image_path);
+            let path = Path::new(&self.calibration_image_path);
             if !path.exists() {
                 return Err(AppError::Validation(format!(
                     "キャリブレーション用画像保存パスが存在しません: {}",
@@ -385,6 +397,73 @@ mod tests {
             .expect("nullable projector monitor patch");
         clear.apply_to(&mut settings);
         assert_eq!(settings.projector_monitor_index, None);
+    }
+
+    #[test]
+    fn unrelated_patches_preserve_unavailable_legacy_calibration_path() {
+        let non_directory = std::env::current_exe()
+            .expect("test executable path")
+            .to_string_lossy()
+            .into_owned();
+        for legacy_path in ["/missing/legacy/calibration/images", &non_directory] {
+            let mut settings: Settings = serde_json::from_value(serde_json::json!({
+                "cameraLeft": "/dev/video0",
+                "cameraRight": "/dev/video1",
+                "calibrationImagePath": legacy_path,
+                "developerMode": false
+            }))
+            .expect("legacy settings should deserialize");
+
+            for patch_json in [
+                serde_json::json!({"cameraLeft": "/dev/video2"}),
+                serde_json::json!({"monitorIndex": 1}),
+                serde_json::json!({"developerMode": true}),
+                serde_json::json!({"developerMode": false}),
+            ] {
+                let patch: SettingsPatch =
+                    serde_json::from_value(patch_json).expect("settings patch should deserialize");
+                patch.apply_to(&mut settings);
+                patch
+                    .validate_applied_settings(&settings)
+                    .expect("unrelated patch should ignore obsolete calibration path");
+                assert_eq!(settings.calibration_image_path, legacy_path);
+            }
+
+            let saved = serde_json::to_value(&settings).expect("settings should serialize");
+            assert_eq!(saved["calibrationImagePath"], legacy_path);
+        }
+    }
+
+    #[test]
+    fn explicit_calibration_path_patch_validates_missing_file_directory_and_empty_values() {
+        let mut settings = Settings {
+            camera_left: "/dev/video0".to_string(),
+            camera_right: "/dev/video1".to_string(),
+            ..Settings::default()
+        };
+
+        for path in [
+            "/missing/updated/calibration/images",
+            std::env::current_exe()
+                .expect("test executable path")
+                .to_str()
+                .expect("test executable path is UTF-8"),
+        ] {
+            let patch = SettingsPatch {
+                calibration_image_path: Some(path.to_string()),
+                ..SettingsPatch::default()
+            };
+            patch.apply_to(&mut settings);
+            assert!(patch.validate_applied_settings(&settings).is_err());
+        }
+
+        let clear = SettingsPatch {
+            calibration_image_path: Some(String::new()),
+            ..SettingsPatch::default()
+        };
+        clear.apply_to(&mut settings);
+        assert!(clear.validate_applied_settings(&settings).is_ok());
+        assert!(settings.calibration_image_path.is_empty());
     }
 
     #[test]
