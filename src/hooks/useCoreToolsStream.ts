@@ -3,6 +3,7 @@ import type { Status } from '@/components/ui/StatusBanner'
 import { resolveCameraSelection } from '@/lib/cameraSelection'
 import {
   type CoreToolsResponse,
+  type CoreToolsStatus,
   coreToolsStatus,
   onCoreToolsEvent,
   onCoreToolsResponse,
@@ -22,6 +23,23 @@ type CameraOpenState = {
 type StreamActiveState = {
   left: boolean
   right: boolean
+}
+
+type CoreStatusResult = { status: CoreToolsStatus } | { error: unknown }
+
+export async function pollCoreStatus(
+  revision: { current: number },
+  receive: (result: CoreStatusResult) => void,
+  readStatus: () => Promise<CoreToolsStatus> = coreToolsStatus,
+): Promise<void> {
+  const requestRevision = ++revision.current
+  let result: CoreStatusResult
+  try {
+    result = { status: await readStatus() }
+  } catch (error) {
+    result = { error }
+  }
+  if (requestRevision === revision.current) receive(result)
 }
 
 export async function startStreamPair(
@@ -67,6 +85,7 @@ export async function startStreamPair(
  */
 export function useCoreToolsStream() {
   const [status, setStatus] = useState<Status>({ type: 'idle' })
+  const [coreStatus, setCoreStatus] = useState<CoreToolsStatus | null>(null)
   const [streamState, setStreamState] = useState<StreamState>('idle')
   const [cameraOpen, setCameraOpen] = useState<CameraOpenState>({
     left: false,
@@ -79,6 +98,8 @@ export function useCoreToolsStream() {
 
   // コマンド id 採番用
   const idCounter = useRef(0)
+  // IPC replies may arrive after a newer poll, lifecycle event, or effect cleanup.
+  const coreStatusRevision = useRef(0)
   const pendingCommands = useRef<
     Map<
       string,
@@ -97,35 +118,47 @@ export function useCoreToolsStream() {
   // 起動自体は Rust 側の setup hook で行われるため、ここでは状態反映のみ。
   useEffect(() => {
     let cancelled = false
+    let inFlight = false
     let timer: ReturnType<typeof setInterval> | undefined
 
     const poll = async () => {
-      if (cancelled) return
+      if (cancelled || inFlight) return
+      inFlight = true
       try {
-        const s = await coreToolsStatus()
-        if (cancelled) return
-        if (s === 'running') {
-          setStatus({ type: 'success', message: '処理エンジン起動完了' })
-        } else if (s === 'failed') {
-          setStatus({
-            type: 'error',
-            message: '処理エンジンの起動に失敗しました',
-          })
-          settlePendingCommands('core-tools failed')
-        } else if (s === 'disconnected') {
-          setStatus({
-            type: 'error',
-            message: '処理エンジンが切断されました',
-          })
-          settlePendingCommands('core-tools disconnected')
-        } else {
-          // idle / starting / ready → 起動中表示
-          setStatus({ type: 'loading', message: '処理エンジンを起動中...' })
-        }
-      } catch (e) {
-        if (!cancelled) {
-          logWarn('core_tools_status poll failed', e)
-        }
+        await pollCoreStatus(coreStatusRevision, (result) => {
+          if (cancelled) return
+          if ('error' in result) {
+            setCoreStatus(null)
+            setStatus({
+              type: 'error',
+              message: `処理エンジンの状態を確認できませんでした: ${extractErrorMessage(result.error)}`,
+            })
+            logWarn('core_tools_status poll failed', result.error)
+            return
+          }
+          const s = result.status
+          setCoreStatus(s)
+          if (s === 'running') {
+            setStatus({ type: 'success', message: '処理エンジン起動完了' })
+          } else if (s === 'failed') {
+            setStatus({
+              type: 'error',
+              message: '処理エンジンの起動に失敗しました',
+            })
+            settlePendingCommands('core-tools failed')
+          } else if (s === 'disconnected') {
+            setStatus({
+              type: 'error',
+              message: '処理エンジンが切断されました',
+            })
+            settlePendingCommands('core-tools disconnected')
+          } else {
+            // idle / starting / ready → 起動中表示
+            setStatus({ type: 'loading', message: '処理エンジンを起動中...' })
+          }
+        })
+      } finally {
+        inFlight = false
       }
     }
 
@@ -134,15 +167,18 @@ export function useCoreToolsStream() {
 
     return () => {
       cancelled = true
+      coreStatusRevision.current++
       if (timer) clearInterval(timer)
     }
   }, [settlePendingCommands])
 
   // response / event 購読 (マウント時1回)
   useEffect(() => {
+    let cancelled = false
     const unsubs: Array<() => void> = []
 
     onCoreToolsResponse((response) => {
+      if (cancelled) return
       const id = response.id
       if (id !== undefined) {
         const pending = pendingCommands.current.get(id)
@@ -155,12 +191,25 @@ export function useCoreToolsStream() {
           }
         }
       }
-    }).then((unsub) => unsubs.push(unsub))
+    }).then((unsub) => {
+      if (cancelled) unsub()
+      else unsubs.push(unsub)
+    })
 
     onCoreToolsEvent((event) => {
+      if (cancelled) return
       switch (event.event) {
         case 'ready': {
-          setStatus({ type: 'success', message: '処理エンジン起動完了' })
+          coreStatusRevision.current++
+          setCoreStatus('ready')
+          setStatus({ type: 'loading', message: '処理エンジンを起動中...' })
+          break
+        }
+        case 'core_tools_terminated': {
+          coreStatusRevision.current++
+          setCoreStatus('disconnected')
+          setStatus({ type: 'error', message: '処理エンジンが切断されました' })
+          settlePendingCommands('core-tools disconnected')
           break
         }
         case 'camera_opened': {
@@ -195,14 +244,18 @@ export function useCoreToolsStream() {
         default:
           break
       }
-    }).then((unsub) => unsubs.push(unsub))
+    }).then((unsub) => {
+      if (cancelled) unsub()
+      else unsubs.push(unsub)
+    })
 
     return () => {
+      cancelled = true
       for (const unsub of unsubs) {
         unsub()
       }
     }
-  }, [])
+  }, [settlePendingCommands])
 
   const sendCommand = useCallback(
     (
@@ -327,6 +380,7 @@ export function useCoreToolsStream() {
 
   return {
     status,
+    coreStatus,
     streamState,
     cameraOpen,
     streamActive,

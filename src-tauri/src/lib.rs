@@ -74,6 +74,7 @@ pub fn run() {
             commands::camera::list_cameras,
             commands::list_scan_monitors::list_scan_monitors,
             commands::core_tools_status::core_tools_status,
+            commands::matching_server_status::matching_server_status,
             commands::load_settings::load_settings,
             commands::recalibrate::recalibrate,
             commands::run_matching::run_matching,
@@ -109,7 +110,7 @@ pub fn run() {
                 }
             }
             if let Some(matching) = app_handle.try_state::<state::matching::MatchingState>() {
-                commands::run_matching::stop_matching_server(&matching);
+                commands::run_matching::stop_matching_server(app_handle, &matching);
                 log::info!("3mserve: sent shutdown to sidecar on app exit");
             }
             if let Some(turntable) = app_handle.try_state::<state::turntable::TurntableState>() {

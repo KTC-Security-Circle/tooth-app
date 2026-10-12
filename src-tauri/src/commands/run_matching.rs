@@ -3,13 +3,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
 
 use crate::errors::AppError;
-use crate::state::matching::{MatchingResponse, MatchingState};
+use crate::state::matching::{
+    MatchingResponse, MatchingServerPhase, MatchingServerStatus, MatchingState,
+};
 use crate::state::settings::Settings;
 use crate::state::turntable::TurntableState;
 
@@ -50,56 +52,97 @@ async fn start_matching_server_inner(
     app: &AppHandle,
     state: &MatchingState,
 ) -> Result<(), AppError> {
-    if state
+    let has_command_sender = state
         .cmd_tx
         .lock()
         .map_err(|_| AppError::Matching("matching state mutex poisoned".to_string()))?
-        .is_some()
-    {
-        return Ok(());
+        .is_some();
+    match (has_command_sender, state.status_snapshot().status) {
+        (true, MatchingServerPhase::Ready) => return Ok(()),
+        (_, MatchingServerPhase::Starting) => {
+            return Err(AppError::Matching(
+                "3mserve startup is already in progress".to_string(),
+            ));
+        }
+        _ => {}
     }
 
-    let (mut events, child) = app
+    let (generation, starting) = state.begin_start();
+    emit_matching_status(app, starting);
+    let spawn_result = app
         .shell()
         .sidecar("3mserve")
-        .map_err(|error| AppError::Matching(format!("failed to resolve 3mserve: {error}")))?
-        .spawn()
-        .map_err(|error| AppError::Matching(format!("failed to spawn 3mserve: {error}")))?;
+        .map_err(|error| AppError::Matching(format!("failed to resolve 3mserve: {error}")))
+        .and_then(|command| {
+            command
+                .spawn()
+                .map_err(|error| AppError::Matching(format!("failed to spawn 3mserve: {error}")))
+        });
+    let (mut events, child) = match spawn_result {
+        Ok(process) => process,
+        Err(error) => {
+            if let Some(status) = state.transition_if(
+                generation,
+                MatchingServerPhase::Starting,
+                MatchingServerPhase::Failed,
+            ) {
+                emit_matching_status(app, status);
+            }
+            return Err(error);
+        }
+    };
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(8);
     let (response_tx, response_rx) = mpsc::channel::<MatchingResponse>(8);
-    let generation = state.generation.fetch_add(1, Ordering::AcqRel) + 1;
-
-    *state
-        .child
-        .lock()
-        .map_err(|_| AppError::Matching("matching state mutex poisoned".to_string()))? =
-        Some(child);
-    *state
-        .cmd_tx
-        .lock()
-        .map_err(|_| AppError::Matching("matching state mutex poisoned".to_string()))? =
-        Some(cmd_tx);
     *state.responses.lock().await = Some(response_rx);
+    let mut child = Some(child);
+    let published = state.publish_if_starting(generation, || -> Result<(), AppError> {
+        *state
+            .child
+            .lock()
+            .map_err(|_| AppError::Matching("matching state mutex poisoned".to_string()))? =
+            child.take();
+        *state
+            .cmd_tx
+            .lock()
+            .map_err(|_| AppError::Matching("matching state mutex poisoned".to_string()))? =
+            Some(cmd_tx.clone());
+        Ok(())
+    });
+    match published {
+        None => {
+            if let Some(child) = child {
+                let _ = child.kill();
+            }
+            return Err(AppError::Matching(
+                "3mserve startup was superseded".to_string(),
+            ));
+        }
+        Some(Err(error)) => {
+            reset_matching_server(app, state, MatchingServerPhase::Failed, Some(generation));
+            if let Some(child) = child {
+                let _ = child.kill();
+            }
+            return Err(error);
+        }
+        Some(Ok(())) => {}
+    }
 
-    let child_for_writer = state.child.clone();
+    let writer_state = state.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(line) = cmd_rx.recv().await {
-            let write_result = child_for_writer
-                .lock()
-                .ok()
-                .and_then(|mut guard| guard.as_mut().map(|child| child.write(line.as_bytes())));
+            let write_result = writer_state
+                .with_generation_child(generation, |child| child.write(line.as_bytes()));
             if write_result.is_none_or(|result| result.is_err()) {
                 break;
             }
         }
     });
 
-    let cmd_tx_for_reader = state.cmd_tx.clone();
-    let child_for_reader = state.child.clone();
-    let generation_for_reader = state.generation.clone();
+    let reader_state = state.clone();
+    let reader_app = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut buffer = Vec::new();
-        while let Some(event) = events.recv().await {
+        'events: while let Some(event) = events.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
                     buffer.extend(bytes);
@@ -113,7 +156,7 @@ async fn start_matching_server_inner(
                         match serde_json::from_str(line) {
                             Ok(value) => {
                                 if response_tx.send(Ok(value)).await.is_err() {
-                                    return;
+                                    break 'events;
                                 }
                             }
                             Err(error) => {
@@ -143,71 +186,106 @@ async fn start_matching_server_inner(
                 _ => {}
             }
         }
-        if generation_for_reader.load(Ordering::Acquire) == generation {
-            if let Ok(mut guard) = cmd_tx_for_reader.lock() {
+        if let Some(status) = reader_state.reader_terminated(generation, || {
+            if let Ok(mut guard) = reader_state.cmd_tx.lock() {
                 *guard = None;
             }
-            if let Ok(mut guard) = child_for_reader.lock() {
+            if let Ok(mut guard) = reader_state.child.lock() {
                 *guard = None;
             }
+        }) {
+            emit_matching_status(&reader_app, status);
         }
     });
 
     let ready = match tokio::time::timeout(Duration::from_secs(10), receive_response(state)).await {
-        Ok(result) => result?,
+        Ok(Ok(ready)) => ready,
+        Ok(Err(error)) => {
+            reset_matching_server(app, state, MatchingServerPhase::Failed, Some(generation));
+            return Err(error);
+        }
         Err(_) => {
-            reset_matching_server(state);
-            return Err(AppError::Matching(
-                "3mserve did not become ready within 10s".to_string(),
-            ));
+            let error = AppError::Matching("3mserve did not become ready within 10s".to_string());
+            reset_matching_server(app, state, MatchingServerPhase::Failed, Some(generation));
+            return Err(error);
         }
     };
-    if ready.get("ready") != Some(&serde_json::Value::Bool(true)) {
-        reset_matching_server(state);
+    if !matching_server_ready(&ready) {
+        reset_matching_server(app, state, MatchingServerPhase::Failed, Some(generation));
         return Err(AppError::Matching(
             "3mserve did not become ready".to_string(),
+        ));
+    }
+    if let Some(status) = state.transition_if(
+        generation,
+        MatchingServerPhase::Starting,
+        MatchingServerPhase::Ready,
+    ) {
+        emit_matching_status(app, status);
+    } else {
+        return Err(AppError::Matching(
+            "3mserve terminated before becoming ready".to_string(),
         ));
     }
     Ok(())
 }
 
-pub fn stop_matching_server(state: &MatchingState) {
-    state.generation.fetch_add(1, Ordering::AcqRel);
-    let child = match state.child.lock() {
-        Ok(mut guard) => guard.take(),
-        Err(poisoned) => poisoned.into_inner().take(),
-    };
-    if let Some(mut child) = child {
-        // Exit handling is synchronous. Write directly to stdin so the
-        // shutdown request is not stranded in the async writer queue.
-        if child.write(b"{\"command\":\"shutdown\"}\n").is_err() {
-            log::warn!("3mserve shutdown request failed; killing sidecar");
-            let _ = child.kill();
-        } else {
-            // Give a healthy server a short opportunity to shut down cleanly,
-            // then kill it so a server that ignores shutdown cannot be orphaned.
-            std::thread::sleep(SHUTDOWN_GRACE_PERIOD);
-            if child.kill().is_ok() {
-                log::warn!(
-                    "3mserve did not shut down within {SHUTDOWN_GRACE_PERIOD:?}; killed sidecar"
-                );
+fn matching_server_ready(response: &serde_json::Value) -> bool {
+    response.get("ready") == Some(&serde_json::Value::Bool(true))
+}
+
+pub fn stop_matching_server(app: &AppHandle, state: &MatchingState) {
+    let status = state.invalidate(None, MatchingServerPhase::Idle, || {
+        let child = match state.child.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(mut child) = child {
+            if child.write(b"{\"command\":\"shutdown\"}\n").is_err() {
+                log::warn!("3mserve shutdown request failed; killing sidecar");
+                let _ = child.kill();
+            } else {
+                std::thread::sleep(SHUTDOWN_GRACE_PERIOD);
+                if child.kill().is_ok() {
+                    log::warn!(
+                        "3mserve did not shut down within {SHUTDOWN_GRACE_PERIOD:?}; killed sidecar"
+                    );
+                }
             }
         }
-    }
-    if let Ok(mut guard) = state.cmd_tx.lock() {
-        *guard = None;
+        if let Ok(mut guard) = state.cmd_tx.lock() {
+            *guard = None;
+        }
+    });
+    if let Some(status) = status {
+        emit_matching_status(app, status);
     }
 }
 
-fn reset_matching_server(state: &MatchingState) {
-    state.generation.fetch_add(1, Ordering::AcqRel);
-    if let Ok(mut guard) = state.cmd_tx.lock() {
-        *guard = None;
-    }
-    if let Ok(mut guard) = state.child.lock() {
-        if let Some(child) = guard.take() {
-            let _ = child.kill();
+fn reset_matching_server(
+    app: &AppHandle,
+    state: &MatchingState,
+    status: MatchingServerPhase,
+    generation: Option<u64>,
+) {
+    let status = state.invalidate(generation, status, || {
+        if let Ok(mut guard) = state.cmd_tx.lock() {
+            *guard = None;
         }
+        if let Ok(mut guard) = state.child.lock() {
+            if let Some(child) = guard.take() {
+                let _ = child.kill();
+            }
+        }
+    });
+    if let Some(status) = status {
+        emit_matching_status(app, status);
+    }
+}
+
+fn emit_matching_status(app: &AppHandle, status: MatchingServerStatus) {
+    if let Err(error) = app.emit("matching-server:status", status) {
+        log::warn!("failed to emit matching-server status: {error}");
     }
 }
 
@@ -392,6 +470,7 @@ async fn run_matching_paths_inner(
         ));
     }
     start_matching_server_inner(app, state).await?;
+    let server_generation = state.generation.load(Ordering::Acquire);
     let request = serde_json::json!({
         "command": "matching",
         "mode": "matching",
@@ -416,7 +495,12 @@ async fn run_matching_paths_inner(
         .await
         .is_err()
     {
-        reset_matching_server(state);
+        reset_matching_server(
+            app,
+            state,
+            MatchingServerPhase::Failed,
+            Some(server_generation),
+        );
         return Err(AppError::Matching(
             "failed to send matching request to 3mserve".to_string(),
         ));
@@ -425,17 +509,32 @@ async fn run_matching_paths_inner(
     let response = match tokio::time::timeout(MATCHING_TIMEOUT, receive_response(state)).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
-            reset_matching_server(state);
+            reset_matching_server(
+                app,
+                state,
+                MatchingServerPhase::Failed,
+                Some(server_generation),
+            );
             return Err(error);
         }
         Err(_) => {
             log::error!("matching timed out after {MATCHING_TIMEOUT:?}");
-            reset_matching_server(state);
+            reset_matching_server(
+                app,
+                state,
+                MatchingServerPhase::Failed,
+                Some(server_generation),
+            );
             return Err(AppError::Matching("3mserve timed out".to_string()));
         }
     };
     if let Some(error) = response.get("error") {
-        reset_matching_server(state);
+        reset_matching_server(
+            app,
+            state,
+            MatchingServerPhase::Failed,
+            Some(server_generation),
+        );
         return Err(AppError::Matching(format!(
             "3mserve matching error: {error}"
         )));
@@ -1000,12 +1099,19 @@ fn assess_result(
 #[cfg(test)]
 mod tests {
     use super::{
-        acquire_matching_request, await_uncertain_scan_cleanup, validate_source_target_separation,
-        wait_for_stereo_scan, ScanFailure,
+        acquire_matching_request, await_uncertain_scan_cleanup, matching_server_ready,
+        validate_source_target_separation, wait_for_stereo_scan, ScanFailure,
     };
     use crate::state::settings::Settings;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
+
+    #[test]
+    fn matching_server_requires_positive_ready_handshake() {
+        assert!(matching_server_ready(&serde_json::json!({"ready":true})));
+        assert!(!matching_server_ready(&serde_json::json!({"ready":false})));
+        assert!(!matching_server_ready(&serde_json::json!({"ok":true})));
+    }
 
     #[test]
     fn production_waiter_rejection_releases_terminal_registration_immediately() {

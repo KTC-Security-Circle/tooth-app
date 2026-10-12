@@ -5,6 +5,7 @@ pub mod get_scan_session;
 pub mod greet;
 pub mod list_scan_monitors;
 pub mod load_settings;
+pub mod matching_server_status;
 pub mod move_turntable;
 pub mod move_turntable_slot;
 pub mod preflight_scan;

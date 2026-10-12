@@ -5,6 +5,7 @@ import StreamPreview from '@/components/app/StreamPreview'
 import Button from '@/components/ui/Button'
 import StatusBanner from '@/components/ui/StatusBanner'
 import { useCoreToolsStream } from '@/hooks/useCoreToolsStream'
+import { useMatchingServerStatus } from '@/hooks/useMatchingServerStatus'
 import { cn } from '@/lib/cn'
 import {
   getMatchingStatus,
@@ -17,12 +18,26 @@ export const Route = createFileRoute('/')({
 })
 
 function Index() {
-  const { status, streamState, streamActive, startStreams, stopStreams } =
-    useCoreToolsStream()
+  const {
+    status,
+    coreStatus,
+    streamState,
+    streamActive,
+    startStreams,
+    stopStreams,
+  } = useCoreToolsStream()
+  const matchingServer = useMatchingServerStatus()
   const matchingStatus = useSyncExternalStore(
     subscribeMatching,
     getMatchingStatus,
   )
+  const enginesReady =
+    coreStatus === 'running' && matchingServer.status === 'ready'
+  const canMatch =
+    enginesReady &&
+    matchingStatus.type !== 'loading' &&
+    streamState !== 'starting' &&
+    streamState !== 'stopping'
 
   return (
     <div data-home className="flex flex-1 flex-col">
@@ -51,17 +66,34 @@ function Index() {
 
         <div className="mt-6 flex flex-col items-center gap-2">
           <Button
-            disabled={
-              matchingStatus.type === 'loading' ||
-              streamState === 'starting' ||
-              streamState === 'stopping'
+            disabled={!canMatch}
+            aria-describedby={
+              !enginesReady ? 'matching-ready-status' : undefined
             }
-            onClick={() => void runMatching()}
+            onClick={() => {
+              if (canMatch && getMatchingStatus().type !== 'loading') {
+                void runMatching()
+              }
+            }}
           >
             {matchingStatus.type === 'loading'
               ? 'スキャン・照合中...'
               : 'マッチング開始'}
           </Button>
+          {!enginesReady && (
+            <p
+              id="matching-ready-status"
+              role="status"
+              className="wrap-anywhere text-center text-muted-foreground text-xs"
+            >
+              {matchingServer.error ??
+                (matchingServer.status === 'failed'
+                  ? 'マッチング処理の起動に失敗しました。'
+                  : matchingServer.status === 'disconnected'
+                    ? 'マッチング処理が切断されました。'
+                    : '処理エンジンとマッチング処理の準備を待っています。')}
+            </p>
+          )}
           <p
             role="status"
             aria-live="polite"
