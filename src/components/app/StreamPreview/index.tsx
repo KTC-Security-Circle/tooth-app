@@ -5,6 +5,8 @@ import { mjpegStreamUrl } from '@/lib/coreTools'
 import StreamPane from './StreamPane'
 
 interface Props {
+  cameraLeft: string
+  cameraRight: string
   streamState: StreamState
   streamActive: { left: boolean; right: boolean }
   startStreams: (leftCameraId: number, rightCameraId: number) => Promise<void>
@@ -13,9 +15,19 @@ interface Props {
   beforeControls?: React.ReactNode
 }
 
+function cameraIndex(path: string): number | null {
+  const match = /^\/dev\/video(\d+)$/.exec(path)
+  if (!match) return null
+
+  const index = Number(match[1])
+  return Number.isSafeInteger(index) && index <= 2147483647 ? index : null
+}
+
 const StreamPreview: React.FC<Props> & {
   Pane: typeof StreamPane
 } = ({
+  cameraLeft,
+  cameraRight,
   streamState,
   streamActive,
   startStreams,
@@ -23,6 +35,16 @@ const StreamPreview: React.FC<Props> & {
   isLoading,
   beforeControls,
 }) => {
+  const leftCameraId = cameraIndex(cameraLeft)
+  const rightCameraId = cameraIndex(cameraRight)
+
+  const cameraSelectionError =
+    leftCameraId === null || rightCameraId === null
+      ? '設定画面で左右のカメラを選択してください。'
+      : leftCameraId === rightCameraId
+        ? '左右には異なるカメラを選択してください。'
+        : null
+
   const isIdle = streamState === 'idle'
   const isStreaming = streamState === 'streaming'
   const isStarting = streamState === 'starting'
@@ -32,10 +54,15 @@ const StreamPreview: React.FC<Props> & {
   const canStop = isStreaming
 
   const handleStart = async () => {
-    // TODO: Settings にはカメラ path 文字列しかなく、core-tools の open_camera は
-    // camera_id (数値) を要求する。path → camera_id の変換は今回スコープ外。
-    // serve_app_flow_test.sh の LEFT_CAMERA=0, RIGHT_CAMERA=2 に倣い、仮に固定値を渡す。
-    await startStreams(0, 2)
+    if (
+      cameraSelectionError !== null ||
+      leftCameraId === null ||
+      rightCameraId === null
+    ) {
+      return
+    }
+
+    await startStreams(leftCameraId, rightCameraId)
   }
 
   const handleStop = async () => {
@@ -64,7 +91,10 @@ const StreamPreview: React.FC<Props> & {
       {beforeControls}
 
       <div className="flex items-center justify-center gap-3">
-        <Button disabled={!canStart || isLoading} onClick={handleStart}>
+        <Button
+          disabled={!canStart || isLoading || cameraSelectionError !== null}
+          onClick={handleStart}
+        >
           {isStarting ? (
             <span className="flex items-center gap-2">
               <SpinnerIcon />
@@ -88,6 +118,11 @@ const StreamPreview: React.FC<Props> & {
             'ストリーム停止'
           )}
         </Button>
+        {cameraSelectionError && (
+          <p role="alert" className="text-center text-destructive text-sm">
+            {cameraSelectionError}
+          </p>
+        )}
       </div>
     </div>
   )
