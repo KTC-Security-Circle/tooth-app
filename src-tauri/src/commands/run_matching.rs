@@ -251,11 +251,11 @@ pub async fn run_matching(
     if settings.stereo_calibration_file.trim().is_empty() {
         settings.stereo_calibration_file = "data/calib/stereo.yml".to_string();
     }
-    if !settings.developer_mode {
-        return Err(AppError::Validation(
-            "developer mode must be enabled to run matching".to_string(),
-        ));
-    }
+    // if !settings.developer_mode {
+    //     return Err(AppError::Validation(
+    //         "developer mode must be enabled to run matching".to_string(),
+    //     ));
+    // }
     let source_path = home_matching_source_path(&settings)?;
     let source_path = validate_ply_path("source_path", source_path)?;
     let target_path = validate_ply_output_path(&settings.matching_target_path)?;

@@ -45,6 +45,7 @@ impl serde::Serialize for AppError {
     where
         S: Serializer,
     {
+        log::error!("AppError detail: {self:?}");
         let message = match self {
             // Validation はユーザー向けメッセージをそのまま渡す
             Self::Validation(msg) => msg.clone(),

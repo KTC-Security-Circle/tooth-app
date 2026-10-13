@@ -61,6 +61,25 @@ pub async fn start_core_tools_inner(
         *lock_status(&state.status) = CoreToolsStatus::Starting;
         state.generation.fetch_add(1, Ordering::AcqRel) + 1
     };
+    use std::path::PathBuf;
+    use tauri::Manager;
+
+    // start_core_tools_inner() 内
+    let log_path = if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("project root")
+            .join("tools/core/logs/tooth-backend.log")
+    } else {
+        app.path()
+            .app_log_dir()
+            .map_err(|e| AppError::CoreTools(e.to_string()))?
+            .join("tooth-backend.log")
+    };
+
+    // 親ディレクトリを作成
+    std::fs::create_dir_all(log_path.parent().unwrap())
+        .map_err(|e| AppError::CoreTools(e.to_string()))?;
 
     let sidecar_result = app
         .shell()
@@ -68,6 +87,7 @@ pub async fn start_core_tools_inner(
         .map_err(|e| AppError::CoreTools(format!("failed to resolve tooth-backend: {e}")))
         .and_then(|cmd| {
             cmd.args(SIDECAR_ARGS)
+                .env("TOOTH_BACKEND_LOG_PATH", &log_path)
                 .spawn()
                 .map_err(|e| AppError::CoreTools(format!("failed to spawn tooth-backend: {e}")))
         });
